@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  app_server:
+    container_name: app_server
+    image: app_server:2.0.0
+    build:
+      context: .
+      target: production
+      dockerfile: ./Dockerfile
+    env_file: .env
+    environment:
+      - POSTGRES_HOST=database
+    ports:
+      - '127.0.0.1:3000:3000'
+    networks:
+      - app-network
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health-check', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  database:
+    container_name: app_postgres_dev
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: pg_isready -U ${POSTGRES_USER:-postgres}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
