@@ -1,9 +1,9 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { AppService } from './app.service';
-import { JwtAuthGuard } from './auth/strategy/jwt-auth.guard';
-import { RolesGuard } from './auth/strategy/roles.guard';
+import { JwtAuthGuard } from './modules/auth/strategy/jwt-auth.guard';
+import { RolesGuard } from './modules/auth/strategy/roles.guard';
 import { Roles } from './custom.decorator';
-import { Role } from './users/enums/role.enum';
+import { Role } from './modules/user/enums/role.enum';
 
 @Controller()
 export class AppController {

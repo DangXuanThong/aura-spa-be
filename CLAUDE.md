@@ -76,7 +76,7 @@ This is a NestJS application following a modular architecture with the following
 ### Database Architecture
 - PostgreSQL with TypeORM
 - Entities extend base TypeORM entities
-- Database configuration in `src/config/database.ts`
+- Database configuration in `src/config/database.config.ts`
 - Support for migrations and synchronization
 - Connection pooling and SSL support
 

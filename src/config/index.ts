@@ -1,5 +1,5 @@
 import { DataSourceOptions } from 'typeorm';
-import { dataSourceOptions } from './database';
+import { dataSourceOptions } from './database.config';
 
 interface iConfig {
   env: string;
