@@ -1,39 +1,37 @@
-import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { ScheduleModule } from '@nestjs/schedule';
-import { TasksModule } from './tasks/tasks.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { UsersModule } from './modules/user/users.module';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Injectable, Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import configuration from './config';
-import { CommonModule } from './common/common.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DataSource, DataSourceOptions } from 'typeorm';
+import { databaseConfig } from './config/database.config';
+
+@Injectable()
+class DatabaseHealthLogger implements OnModuleInit {
+  private readonly logger = new Logger(DatabaseHealthLogger.name);
+
+  constructor(private readonly dataSource: DataSource) {}
+
+  onModuleInit(): void {
+    if (this.dataSource.isInitialized) {
+      this.logger.log('Database connected successfully');
+    }
+  }
+}
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
-      load: [configuration],
+      isGlobal: true, // Mọi module AURA SPA đều đọc được ConfigService.
+      load: [databaseConfig],
     }),
-    CommonModule,
     TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => {
-        const dbConfig = configService.get('database');
-        if (!dbConfig) {
-          throw new Error('Database configuration is missing');
-        }
-        return dbConfig;
-      },
       inject: [ConfigService],
+      useFactory: (configService: ConfigService): DataSourceOptions => {
+        return configService.getOrThrow<DataSourceOptions>('database');
+      },
     }),
-    ScheduleModule.forRoot(),
-    AuthModule,
-    UsersModule,
-    TasksModule,
+    ScheduleModule.forRoot(), // Chuẩn bị cho cron auto-cancel booking sau này.
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [DatabaseHealthLogger],
 })
 export class AppModule {}

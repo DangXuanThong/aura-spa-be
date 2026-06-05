@@ -1,26 +1,50 @@
+import { registerAs } from '@nestjs/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
-import * as dotenv from 'dotenv';
 
-// Load environment variables from .env file
-dotenv.config();
+export interface DatabaseEnvironment {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+  sslEnabled: boolean;
+}
 
-export const dataSourceOptions: DataSourceOptions = {
-  type: 'postgres',
-  host: process.env.POSTGRES_HOST,
-  port: parseInt(process.env.POSTGRES_PORT ?? '5432', 10) || 5432,
-  username: process.env.POSTGRES_USER,
-  password: process.env.POSTGRES_PASSWORD,
-  database: process.env.POSTGRES_DB,
-  entities: ['dist/**/*.entity{.ts,.js}'],
-  migrations: ['dist/migrations/*{.ts,.js}'],
-  synchronize: false,
-  ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED !== 'false' } : false,
-  extra: {
-    max: parseInt(process.env.POSTGRES_POOL_SIZE ?? '10', 10) || 10,
-    connectionTimeoutMillis: 5000,
-  },
-};
+function readNumber(value: string | undefined, fallback: number): number {
+  const parsedValue = Number.parseInt(value ?? '', 10);
+  return Number.isNaN(parsedValue) ? fallback : parsedValue;
+}
 
-// Create and export a new DataSource instance
-const dataSource = new DataSource(dataSourceOptions);
-export default dataSource;
+function readDatabaseEnvironment(): DatabaseEnvironment {
+  return {
+    host: process.env.DATABASE_HOST ?? 'localhost',
+    port: readNumber(process.env.DATABASE_PORT, 5432),
+    username: process.env.DATABASE_USER ?? 'postgres',
+    password: process.env.DATABASE_PASSWORD ?? 'postgres',
+    database: process.env.DATABASE_NAME ?? 'aura_spa',
+    sslEnabled: process.env.DATABASE_SSL === 'true',
+  };
+}
+
+export function buildDataSourceOptions(): DataSourceOptions {
+  const env = readDatabaseEnvironment();
+
+  return {
+    type: 'postgres',
+    host: env.host,
+    port: env.port,
+    username: env.username,
+    password: env.password,
+    database: env.database,
+    entities: ['dist/**/*.entity.js'],
+    migrations: ['dist/database/migrations/*.js'],
+    synchronize: false, // AURA SPA chỉ đổi schema bằng migration để BE Lead review được.
+    migrationsRun: false, // Chạy migration thủ công để tránh app tự sửa DB lúc deploy.
+    logging: process.env.NODE_ENV !== 'production',
+    ssl: env.sslEnabled ? { rejectUnauthorized: false } : false,
+  };
+}
+
+export const databaseConfig = registerAs('database', buildDataSourceOptions);
+
+export default new DataSource(buildDataSourceOptions());
