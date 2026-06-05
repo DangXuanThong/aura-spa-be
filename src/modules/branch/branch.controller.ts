@@ -2,6 +2,13 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { BranchHealthResponseDto } from './dto/branch-health-response.dto';
 import { BranchService } from './branch.service';
+import { ApiResponse, buildSuccessResponse } from 'src/common/dto/api-response.dto';
+
+interface BranchHealthData {
+  module: 'branch';
+  status: 'ready';
+  activeBranchCount: number;
+}
 
 @ApiTags('branches')
 @Controller('branches')
@@ -10,16 +17,13 @@ export class BranchController {
 
   @Get('health')
   @ApiOkResponse({ type: BranchHealthResponseDto })
-  async getHealth(): Promise<BranchHealthResponseDto> {
+  async getHealth(): Promise<ApiResponse<BranchHealthData>> {
     const activeBranchCount = await this.branchService.countActiveBranches();
 
-    return {
-      success: true,
-      data: {
-        module: 'branch',
-        status: 'ready',
-        activeBranchCount,
-      },
-    };
+    return buildSuccessResponse({
+      module: 'branch',
+      status: 'ready',
+      activeBranchCount,
+    });
   }
 }
