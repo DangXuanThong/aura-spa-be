@@ -1,57 +1,46 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import helmet from 'helmet';
+import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { AppModule } from './app.module';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
 
-  try {
-    const app = await NestFactory.create(AppModule);
-    const configService = app.get(ConfigService);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // Field không khai báo trong DTO sẽ bị loại bỏ.
+      transform: true, // class-transformer convert request body sang DTO class.
+      forbidNonWhitelisted: true, // Client gửi field lạ thì báo lỗi để FE sửa contract.
+    }),
+  );
 
-    // Security middleware
-    app.use(helmet());
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('AURA SPA API')
+    .setDescription('API contract for AURA SPA multi-branch spa management system')
+    .setVersion('1.0.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'Authorization',
+        in: 'header',
+      },
+      'access-token',
+    )
+    .build();
 
-    const allowedOrigins = configService.get<string[]>('allowedOrigins', ['http://localhost:3000']);
-    app.enableCors({
-      origin: allowedOrigins,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-      credentials: true,
-    });
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, swaggerDocument);
 
-    // Global pipes
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-
-    // Swagger - only enable in non-production environments
-    if (configService.get('env') !== 'production') {
-      const config = new DocumentBuilder()
-        .setTitle('Prime Nestjs')
-        .setDescription('Boilerplate for nestjs')
-        .setVersion('2.0.0')
-        .addBearerAuth()
-        .addTag('api')
-        .build();
-
-      const document = SwaggerModule.createDocument(app, config);
-      SwaggerModule.setup('api', app, document);
-    }
-
-    const port = configService.get('port', 3000);
-    await app.listen(port);
-    logger.log(`Application is running on: http://localhost:${port}`);
-  } catch (error) {
-    logger.error('Error during application bootstrap:', error);
-    process.exit(1);
-  }
+  const port = configService.get<number>('PORT', 3001);
+  await app.listen(port);
+  logger.log(`AURA SPA API running at http://localhost:${port}`);
+  logger.log(`Swagger docs running at http://localhost:${port}/api/docs`);
 }
 
-bootstrap();
+void bootstrap();

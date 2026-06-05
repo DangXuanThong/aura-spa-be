@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
+import { BranchModule } from './modules/branch/branch.module';
+import { UserModule } from './modules/user/user.module';
 import { databaseConfig } from './config/database.config';
 
 @Injectable()
@@ -21,7 +23,7 @@ class DatabaseHealthLogger implements OnModuleInit {
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // Mọi module AURA SPA đều đọc được ConfigService.
+      isGlobal: true,
       load: [databaseConfig],
     }),
     TypeOrmModule.forRootAsync({
@@ -30,7 +32,9 @@ class DatabaseHealthLogger implements OnModuleInit {
         return configService.getOrThrow<DataSourceOptions>('database');
       },
     }),
-    ScheduleModule.forRoot(), // Chuẩn bị cho cron auto-cancel booking sau này.
+    ScheduleModule.forRoot(),
+    UserModule,
+    BranchModule,
   ],
   providers: [DatabaseHealthLogger],
 })
