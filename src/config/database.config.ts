@@ -17,12 +17,12 @@ function readNumber(value: string | undefined, fallback: number): number {
 
 function readDatabaseEnvironment(): DatabaseEnvironment {
   return {
-    host: process.env.DATABASE_HOST ?? 'localhost',
-    port: readNumber(process.env.DATABASE_PORT, 5432),
-    username: process.env.DATABASE_USER ?? 'postgres',
-    password: process.env.DATABASE_PASSWORD ?? 'postgres',
-    database: process.env.DATABASE_NAME ?? 'aura_spa',
-    sslEnabled: process.env.DATABASE_SSL === 'true',
+    host: process.env.POSTGRES_HOST ?? 'localhost',
+    port: readNumber(process.env.POSTGRES_PORT, 5432),
+    username: process.env.POSTGRES_USER ?? 'postgres',
+    password: process.env.POSTGRES_PASSWORD ?? 'postgres',
+    database: process.env.POSTGRES_NAME ?? 'aura_spa',
+    sslEnabled: process.env.POSTGRES_SSL === 'true',
   };
 }
 
