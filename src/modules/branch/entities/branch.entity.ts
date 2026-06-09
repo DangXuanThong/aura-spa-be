@@ -1,28 +1,45 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { BranchStatus } from '../enums/branch-status.enum';
 
 @Entity('branches')
+@Index('IDX_branches_code_unique', ['code'], { unique: true })
 @Index('IDX_branches_name_unique', ['name'], { unique: true })
 export class Branch {
-  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
+  @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: false })
+  code!: string;
 
   @Column({ type: 'varchar', length: 150, nullable: false })
   name!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: false })
+  @Column({ type: 'text', nullable: false })
   address!: string;
 
-  @Column({ name: 'phone_number', type: 'varchar', length: 20, nullable: true })
-  phoneNumber!: string | null;
+  @Column({ type: 'varchar', length: 100, nullable: false })
+  city!: string;
 
-  @Column({ type: 'double precision', nullable: false })
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  district!: string | null;
+
+  @Column({ type: 'numeric', precision: 10, scale: 8, nullable: false })
   latitude!: number; // RecommendationService dùng latitude để tính branch gần customer.
 
-  @Column({ type: 'double precision', nullable: false })
+  @Column({ type: 'numeric', precision: 11, scale: 8, nullable: false })
   longitude!: number; // RecommendationService dùng longitude cùng latitude để tính khoảng cách.
 
-  @Column({ name: 'is_active', type: 'boolean', default: true })
-  isActive!: boolean;
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  phone!: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: BranchStatus,
+    enumName: 'branch_status',
+    default: BranchStatus.Active,
+    nullable: false,
+  })
+  status!: BranchStatus;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

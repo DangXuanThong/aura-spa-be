@@ -5,6 +5,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { BranchModule } from './modules/branch/branch.module';
 import { UserModule } from './modules/user/user.module';
+import { ServiceModule } from './modules/service/service.module';
+import { BranchServiceModule } from './modules/branch-service/branch-service.module';
 import { databaseConfig } from './config/database.config';
 import { AuthModule } from 'src/modules/auth/auth.module';
 
@@ -35,8 +37,10 @@ class DatabaseHealthLogger implements OnModuleInit {
     }),
     ScheduleModule.forRoot(),
     UserModule,
+    AuthModule,
     BranchModule,
-    AuthModule
+    ServiceModule,
+    BranchServiceModule,
   ],
   providers: [DatabaseHealthLogger],
 })
