@@ -41,20 +41,20 @@ export class UserProfileDto {
   updatedAt!: Date;
 }
 
-export class LoginResponseDto {
-  @ApiProperty({ example: true })
-  success!: true;
-
-  @ApiProperty()
-  data!: LoginResponseData;
-}
-
 export class LoginResponseData {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' })
   accessToken!: string;
 
   @ApiProperty()
   user!: UserProfileDto;
+}
+
+export class LoginResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty()
+  data!: LoginResponseData;
 }
 
 export class RegisterResponseDto {

@@ -6,6 +6,7 @@ import { DataSource, DataSourceOptions } from 'typeorm';
 import { BranchModule } from './modules/branch/branch.module';
 import { UserModule } from './modules/user/user.module';
 import { databaseConfig } from './config/database.config';
+import { AuthModule } from 'src/modules/auth/auth.module';
 
 @Injectable()
 class DatabaseHealthLogger implements OnModuleInit {
@@ -35,6 +36,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     ScheduleModule.forRoot(),
     UserModule,
     BranchModule,
+    AuthModule
   ],
   providers: [DatabaseHealthLogger],
 })
