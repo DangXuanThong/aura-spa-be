@@ -8,6 +8,7 @@ import { UserModule } from './modules/user/user.module';
 import { ServiceModule } from './modules/service/service.module';
 import { BranchServiceModule } from './modules/branch-service/branch-service.module';
 import { databaseConfig } from './config/database.config';
+import { AuthModule } from 'src/modules/auth/auth.module';
 
 @Injectable()
 class DatabaseHealthLogger implements OnModuleInit {
@@ -36,6 +37,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     }),
     ScheduleModule.forRoot(),
     UserModule,
+    AuthModule,
     BranchModule,
     ServiceModule,
     BranchServiceModule,
