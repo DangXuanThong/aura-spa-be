@@ -1,0 +1,139 @@
+import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
+import { UserService } from 'src/modules/user/user.service';
+import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
+import { Gender } from 'src/modules/user/enums/gender.enum';
+import { UserStatus } from 'src/modules/user/enums/user-status.enum';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from 'src/modules/user/dto/update-profile.dto';
+import { LoginResponseData, UserProfileDto } from './dto/auth-response.dto';
+import { JwtPayload } from './strategies/jwt.strategy';
+import { User } from 'src/modules/user/entities/user.entity';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly userService: UserService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  // UC01 — Register Account
+  async register(dto: RegisterDto): Promise<UserProfileDto> {
+    const existing = await this.userService.findByEmail(dto.email);
+    if (existing) {
+      throw new ConflictException('Email is already in use');
+    }
+
+    if (dto.phone) {
+      const existingPhone = await this.userService.findByPhone(dto.phone);
+      if (existingPhone) {
+        throw new ConflictException('Phone number is already in use');
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+
+    const user = await this.userService.create({
+      fullName: dto.fullName,
+      email: dto.email.trim().toLowerCase(),
+      phone: dto.phone ?? null,
+      passwordHash,
+      authProvider: AuthProvider.Email,
+      // New accounts start as Active for MVP (OTP verification skipped per scope)
+      // TODO: Setup a way to send OTP emails and chage status default back to PendingVerification
+      status: UserStatus.Active,
+      gender: dto.gender ?? Gender.Unknown,
+      dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+      address: dto.address ?? null,
+    });
+
+    return this.toProfileDto(user);
+  }
+
+  // UC02 — Log In
+  async login(dto: LoginDto): Promise<LoginResponseData> {
+    const user = await this.userService.findByEmail(dto.email, { includePasswordHash: true });
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordMatches) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) {
+      throw new UnauthorizedException('Account is not active');
+    }
+
+    await this.userService.updateLastLogin(user.id);
+
+    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      accessToken,
+      user: this.toProfileDto(user),
+    };
+  }
+
+  // UC03 — Log Out (stateless JWT: client discards token; server-side is a no-op for MVP)
+  logout(): { message: string } {
+    // For MVP with stateless JWT there is nothing to invalidate server-side.
+    // A future iteration can add a token blacklist / refresh-token revocation here.
+    return { message: 'Logged out successfully' };
+  }
+
+  // UC04 — Update Personal Profile
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserProfileDto> {
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (dto.phone && dto.phone !== user.phone) {
+      const existingPhone = await this.userService.findByPhone(dto.phone);
+      if (existingPhone) {
+        throw new ConflictException('Phone number is already in use');
+      }
+    }
+
+    const updates: Partial<User> = {};
+
+    if (dto.fullName !== undefined) updates.fullName = dto.fullName;
+    if (dto.phone !== undefined) updates.phone = dto.phone;
+    if (dto.gender !== undefined) updates.gender = dto.gender;
+    if (dto.dateOfBirth !== undefined) updates.dateOfBirth = new Date(dto.dateOfBirth);
+    if (dto.address !== undefined) updates.address = dto.address;
+    if (dto.avatarUrl !== undefined) updates.avatarUrl = dto.avatarUrl;
+    if (dto.password !== undefined) {
+      updates.passwordHash = await bcrypt.hash(dto.password, 12);
+    }
+
+    const updated = await this.userService.update(userId, updates);
+    return this.toProfileDto(updated);
+  }
+
+  // Helper — strip sensitive fields and return public profile shape
+  private toProfileDto(user: User): UserProfileDto {
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      status: user.status,
+      gender: user.gender,
+      avatarUrl: user.avatarUrl,
+      dateOfBirth: user.dateOfBirth,
+      address: user.address,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+}

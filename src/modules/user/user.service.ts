@@ -7,6 +7,18 @@ export interface FindUserByEmailOptions {
   includePasswordHash: boolean;
 }
 
+export interface CreateUserData {
+  fullName: string;
+  email: string;
+  phone: string | null;
+  passwordHash: string | null;
+  authProvider: User['authProvider'];
+  status: User['status'];
+  gender: User['gender'];
+  dateOfBirth: Date | null;
+  address: string | null;
+}
+
 @Injectable()
 export class UserService {
   constructor(
@@ -26,5 +38,28 @@ export class UserService {
     }
 
     return this.userRepository.findOne({ where: { email: normalizedEmail } });
+  }
+
+  async findByPhone(phone: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { phone } });
+  }
+
+  async findById(id: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { id } });
+  }
+
+  async create(data: CreateUserData): Promise<User> {
+    const user = this.userRepository.create(data);
+    return this.userRepository.save(user);
+  }
+
+  async update(id: string, data: Partial<User>): Promise<User> {
+    await this.userRepository.update(id, data);
+    // findById will never return null here since we just updated a known user
+    return (await this.findById(id)) as User;
+  }
+
+  async updateLastLogin(id: string): Promise<void> {
+    await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 }
