@@ -1,277 +1,419 @@
-# AURA SPA - Báo Cáo Tiến Độ Dự Án
+# AURA SPA API - Development Progress
 
-**Tên Dự Án:** AURA SPA API (Hệ Thống Quản Lý Spa Đa Chi Nhánh)  
-**Phiên Bản:** 2.1.0  
-**Framework:** NestJS + TypeORM + PostgreSQL  
-**Cập Nhật Cuối Cùng:** 8 tháng 6 năm 2026
-
----
-
-## Tổng Quan Dự Án
-
-AURA SPA API là một boilerplate NestJS sẵn sàng cho sản xuất, được thiết kế cho hệ thống quản lý spa đa chi nhánh. Nó triển khai kiến trúc module với các tính năng toàn diện cho quản lý người dùng, quản lý chi nhánh và kiểm soát truy cập dựa trên vai trò.
+**Project:** Multi-Branch Spa Management System  
+**Framework:** NestJS 11.1.24 + TypeORM + PostgreSQL  
+**Version:** 2.1.0  
+**Status:** MVP Development  
+**Last Update:** June 9, 2026 - 1:43 PM
 
 ---
 
-## Các Tính Năng Đã Hoàn Thành ✅
+## ✅ Completed Features
 
-### 1. Cơ Sở Hạ Tầng Cốt Lõi
-- ✅ **Thiết Lập Ứng Dụng NestJS** - Cấu trúc dự án đầy đủ với kiến trúc module
-- ✅ **Tích Hợp TypeORM** - Kết nối cơ sở dữ liệu PostgreSQL qua TypeORM ORM
-- ✅ **Cấu Hình Toàn Cục** - Quản lý cấu hình dựa trên biến môi trường qua ConfigModule
-- ✅ **Tài Liệu API Swagger** - Tài liệu API tự động tạo tại `/api/docs` hỗ trợ xác thực JWT Bearer
-- ✅ **Xử Lý Exception Toàn Cục** - HttpExceptionFilter cho phản hồi lỗi nhất quán
-- ✅ **Pipeline Xác Thực** - Global ValidationPipe với danh sách trắng, chuyển đổi và xử lý lỗi
+### 1. Core Infrastructure
+- ✅ NestJS application setup with modular architecture
+- ✅ TypeORM integration with PostgreSQL
+- ✅ Global configuration management (ConfigModule)
+- ✅ Swagger/OpenAPI documentation at `/api/docs`
+- ✅ Global exception handling (HttpExceptionFilter)
+- ✅ Input validation pipeline (ValidationPipe with whitelist)
+- ✅ Database migration system ready (TypeORM migrations)
 
-### 2. Xác Thực & Phân Quyền
-- ✅ **JWT Strategy** - Thiết lập xác thực dựa trên JWT (cấu trúc sẵn sàng, framework thực hiện)
-- ✅ **Authentication Guards** - JWT auth guard và guard kiểm soát truy cập dựa trên vai trò (RBAC)
-- ✅ **User Roles Enum** - 4 vai trò người dùng cố định: Khách hàng, Nhân viên, Quản lý, Quản trị viên
-- ✅ **Tích Hợp Passport** - Passport.js được cấu hình với JWT và local strategies
+### 2. Authentication & Authorization Framework
+- ✅ JWT strategy structure in place
+- ✅ JWT Auth Guard and Roles Guard ready
+- ✅ User roles enum (Owner, Manager, Staff, Customer)
+- ✅ Passport.js integration configured
 
-### 3. Module Quản Lý Người Dùng (`src/modules/user/`)
-- ✅ **User Entity** - Entity được hỗ trợ bởi PostgreSQL với:
-  - Chỉ mục duy nhất cho email và số điện thoại
-  - Lưu trữ hash mật khẩu (loại trừ khỏi truy vấn mặc định để bảo mật)
-  - Loại người dùng dựa trên vai trò (enum)
-  - Trạng thái hoạt động/không hoạt động
-  - Timestamps (createdAt, updatedAt)
-- ✅ **User Service** - Dịch vụ người dùng cốt lõi với các phương thức như `findByEmail()`
-- ✅ **User Module** - Module được xuất đúng cách cho dependency injection
+### 3. User Module
+- ✅ User entity with email/phone unique indexes
+- ✅ Password hash storage (excluded from queries)
+- ✅ User roles (enum-based)
+- ✅ Active/inactive status
+- ✅ User service with `findByEmail()` method
+- ✅ Module properly exported
 
-### 4. Module Quản Lý Chi Nhánh (`src/modules/branch/`)
-- ✅ **Branch Entity** - Entity được hỗ trợ bởi PostgreSQL với:
-  - Chỉ mục tên chi nhánh duy nhất
-  - Trường địa chỉ và số điện thoại
-  - Tọa độ địa lý (vĩ độ, kinh độ) cho các dịch vụ dựa trên vị trí
-  - Trạng thái hoạt động/không hoạt động
-  - Timestamps (createdAt, updatedAt)
-- ✅ **Branch Controller** - REST endpoints bao gồm:
-  - `GET /health` - Endpoint kiểm tra trạng thái sức khỏe chi nhánh
-- ✅ **Branch Service** - Logic kinh doanh cho hoạt động chi nhánh:
-  - `countActiveBranches()` - Đếm chi nhánh hoạt động trong hệ thống
-- ✅ **Branch Module** - Cấu trúc module thích hợp với exports
+### 4. Branch Module - CRUD ✅ COMPLETE
+**Entity:**
+- UUID primary key (upgraded from BIGSERIAL)
+- Unique indexes: code, name
+- Fields: code, name, address (text), city, district, latitude (numeric), longitude (numeric), phone, status (enum)
+- Status enum: active, inactive, maintenance, closed
+- Timestamps: created_at, updated_at
 
-### 5. Cơ Sở Dữ Liệu & Migrations
-- ✅ **Cấu Hình TypeORM** - Cấu hình cơ sở dữ liệu với connection pooling và hỗ trợ SSL
-- ✅ **Logging Sức Khỏe Cơ Sở Dữ Liệu** - DatabaseHealthLogger trên module init
-- ✅ **Hỗ Trợ Migration** - Các lệnh sẵn có cho:
-  - `npm run schema:sync` - Đồng bộ hóa schema
-  - `npm run migration:generate` - Tạo migrations
-  - `npm run migration:run` - Chạy migrations
-  - `npm run migration:revert` - Hoàn nguyên migration cuối cùng
+**Service (7 methods):**
+- `create()` - Create branch with validation
+- `findAll()` - Get all branches (filter by status)
+- `findOne()` - Get by ID
+- `findByCode()` - Get by code
+- `update()` - Update with duplicate checking
+- `remove()` - Delete branch
+- `countActiveBranches()` - Count active branches
+- `getByCity()` - Filter by city
+- `getNearby()` - Find nearby branches using haversine formula (lat/lng distance)
 
-### 6. Chất Lượng Code & Công Cụ Phát Triển
-- ✅ **Cấu Hình ESLint** - Thiết lập linting code hỗ trợ TypeScript
-- ✅ **Prettier Formatting** - Định dạng code với cấu hình `.prettierrc`
-- ✅ **Husky + Commitlint** - Git hooks để xác thực commit message
-- ✅ **Jest Testing Framework** - Thiết lập unit và E2E testing
-- ✅ **TypeScript** - Cấu hình TypeScript nghiêm ngặt (v5.9.2)
-- ✅ **Docker Support** - Dockerfile và docker-compose.yml cho containerization
+**Controller (9 routes):**
+- POST `/branches` - Create
+- GET `/branches` - List all
+- GET `/branches/by-code/:code` - Get by code
+- GET `/branches/by-city/:city` - Get by city
+- GET `/branches/nearby` - Find nearby (query: latitude, longitude, radius)
+- GET `/branches/:id` - Get by ID
+- PATCH `/branches/:id` - Update
+- DELETE `/branches/:id` - Delete
 
-### 7. Các Tính Năng Bảo Mật
-- ✅ **Tích Hợp Helmet** - Middleware bảo mật HTTP headers
-- ✅ **Password Hashing** - bcryptjs cho hash mật khẩu
-- ✅ **JWT RSA256** - RSA key pair cho JWT signing (cấu hình qua env)
-- ✅ **Phòng Chống SQL Injection** - TypeORM parameterized queries
-- ✅ **Cấu Hình CORS** - Cấu hình allowed origins dựa trên biến môi trường
-- ✅ **Security Policy** - Tài liệu về báo cáo bảo mật và best practices
+**DTOs:**
+- `CreateBranchDto` - With validation (IsNotEmpty, IsString, IsDecimal, IsUUID)
+- `UpdateBranchDto` - PartialType for optional updates
 
-### 8. Tài Liệu API
-- ✅ **Insomnia/Postman Collection** - `endpoints.json` với các request API mẫu:
-  - Root endpoint `/`
-  - Health check `/health-check`
-  - Login `/auth/login`
-  - Register `/auth/register`
-  - Protected routes `/echo` (user), `/premium-echo` (admin)
-- ✅ **Swagger/OpenAPI** - Tài liệu API interactiv hỗ trợ xác thực
-- ✅ **Response DTO Contracts** - Các đối tượng phản hồi được gõ cho trạng thái sức khỏe chi nhánh
+### 5. Service Module - CRUD ✅ COMPLETE
+**Entity:**
+- UUID primary key
+- Unique indexes: code, slug
+- Fields: code, name, slug, category, description (text), default_duration_minutes (int), default_price (decimal), status (enum), is_multi_session (boolean), total_sessions (int)
+- Status enum: active, inactive, archived
+- Timestamps: created_at, updated_at
 
-### 9. Tài Liệu Phát Triển
-- ✅ **CLAUDE.md** - Hướng dẫn phát triển toàn diện với:
-  - Các lệnh npm phổ biến
-  - Tổng quan kiến trúc
-  - Tài liệu quy trình xác thực
-  - Thủ tục quản lý cơ sở dữ liệu
-  - Tham khảo biến môi trường
-- ✅ **Tài Liệu Cấu Trúc Code** - Các mẫu tổ chức thư mục rõ ràng
-- ✅ **API Contracts** - Các cấu trúc request/response được xác định rõ
+**Service (8 methods):**
+- `create()` - Create service with validation
+- `findAll()` - Get all services (filter by status)
+- `findOne()` - Get by ID
+- `findByCode()` - Get by code
+- `findBySlug()` - Get by slug
+- `update()` - Update with duplicate checking
+- `remove()` - Delete service
+- `countByStatus()` - Count services by status
+- `getServicesByCategory()` - Get services by category
 
-### 10. Phụ Thuộc & Quản Lý Gói
-- ✅ **Production Dependencies** - Phiên bản ổn định mới nhất:
-  - NestJS 11.1.24
-  - TypeORM 0.3.26
-  - PostgreSQL driver (pg 8.16.3)
-  - JWT/Passport packages
-  - Swagger UI 5.0.1
-  - Helmet 8.0.0
-- ✅ **Development Dependencies** - Toolchain testing và build hoàn chỉnh
-- ✅ **Node Version Requirement** - Node >=20.0.0, npm >=10.0.0
+**Controller (8 routes):**
+- POST `/services` - Create
+- GET `/services` - List all
+- GET `/services/by-code/:code` - Get by code
+- GET `/services/by-slug/:slug` - Get by slug
+- GET `/services/category/:category` - Get by category
+- GET `/services/:id` - Get by ID
+- PATCH `/services/:id` - Update
+- DELETE `/services/:id` - Delete
 
----
+**DTOs:**
+- `CreateServiceDto` - With full validation
+- `UpdateServiceDto` - PartialType for optional updates
 
-## Các Tính Năng Hoàn Thành Một Phần ⚠️
+### 6. Branch-Service Module - CRUD ✅ COMPLETE (Many-to-Many)
+**Entity (Junction Table):**
+- UUID primary key
+- Foreign keys: branch_id (UUID), service_id (UUID) - both with CASCADE delete
+- Unique constraint: (branch_id, service_id)
+- Fields: is_enabled (boolean), duration_minutes_override (int, nullable), price_override (decimal, nullable), max_parallel_bookings (int, nullable)
+- Timestamps: created_at, updated_at
 
-### 1. Triển Khai Xác Thực
-- ✅ Cấu Trúc: JWT strategy, guards, và DTOs folders được tạo
-- ⚠️ **Triển Khai**: Một số logic và endpoints xác thực cốt lõi có thể cần hoàn thành:
-  - Chi tiết triển khai endpoint login
-  - Chi tiết triển khai endpoint register
-  - Tạo và xác thực token JWT
-  - Logic xác minh mật khẩu
+**Service (9 methods):**
+- `create()` - Create relationship with validation
+- `findAll()` - Get all relationships (filter by branchId/serviceId)
+- `findOne()` - Get by ID
+- `findByBranchAndService()` - Get specific relationship
+- `getServicesByBranch()` - Get all services for a branch
+- `getBranchesByService()` - Get all branches offering a service
+- `update()` - Update with duplicate checking
+- `remove()` - Delete relationship
+- `removeByBranchAndService()` - Delete specific relationship
+- `countByBranch()` - Count relationships for branch
+- `countEnabledByBranch()` - Count enabled services for branch
 
-### 2. Tasks Module (`src/tasks/`)
-- ✅ Cấu trúc được tạo với DTOs và entities folders
-- ⚠️ **Triển Khai**: Triển khai tối thiểu/không triển khai - đợi các hoạt động CRUD đầy đủ
+**Controller (8 routes):**
+- POST `/branch-services` - Create
+- GET `/branch-services` - List all
+- GET `/branch-services/branch/:branchId` - Services for branch
+- GET `/branch-services/service/:serviceId` - Branches with service
+- GET `/branch-services/:id` - Get by ID
+- GET `/branch-services/branch/:branchId/service/:serviceId` - Get specific
+- PATCH `/branch-services/:id` - Update
+- DELETE `/branch-services/:id` - Delete
+- DELETE `/branch-services/branch/:branchId/service/:serviceId` - Delete specific
 
-### 3. Chuẩn Hóa Phản Hồi API
-- ✅ Cấu trúc response interceptor tồn tại
-- ⚠️ **Tích Hợp Đầy Đủ**: Có thể cần tinh chỉnh trên tất cả các endpoints
+**DTOs:**
+- `CreateBranchServiceDto` - With UUID validation for IDs
+- `UpdateBranchServiceDto` - PartialType for optional updates
 
----
+### 7. Database & Migrations ✅ COMPLETE
+**Migrations:**
+- `InitialUsersAndBranches1780636651160` - Create users & branches tables
+- `UpdateBranchesAndAddServices1780636651161` - Create services & branch_services tables, update branches
 
-## Danh Sách Công Việc / Tính Năng Tương Lai 🔄
+**Tables Created:**
+- `users` - 7 columns with indexes
+- `branches` - 11 columns with indexes and UUID PK
+- `services` - 11 columns with indexes and UUID PK
+- `branch_services` - 7 columns with foreign keys and unique constraint
 
-### 1. Các Tính Năng Cốt Lõi Cần Hoàn Thành
-- [ ] Triển khai quy trình xác thực hoàn chỉnh (login, register, refresh tokens)
-- [ ] Triển khai Tasks module CRUD operations
-- [ ] Thêm kiểm soát truy cập dựa trên vai trò thực tế cho tất cả endpoints
-- [ ] Triển khai công cụ khuyến nghị dịch vụ (sử dụng vĩ độ/kinh độ cho gần chi nhánh)
-- [ ] Thêm thông báo email/SMS cho bookings và cập nhật trạng thái
+### 8. Code Quality & Development
+- ✅ ESLint configured with TypeScript support
+- ✅ Prettier code formatting
+- ✅ TypeScript strict mode (v5.9.2)
+- ✅ Jest testing framework integrated
+- ✅ Docker & Docker Compose configured
+- ✅ Hot-reload in development mode
 
-### 2. Lớp Logic Kinh Doanh
-- [ ] Module quản lý đặt phòng
-- [ ] Danh mục dịch vụ và định giá
-- [ ] Hệ thống điểm thành viên/khách hàng
-- [ ] Lập lịch nhân viên và tính khả dụng
-- [ ] Tích hợp thanh toán
-- [ ] Tạo hóa đơn và quittung
+### 9. Security Features
+- ✅ Helmet HTTP headers middleware
+- ✅ Input validation on all DTOs
+- ✅ Unique constraints in database
+- ✅ Foreign key constraints with CASCADE delete
+- ✅ Password hashing setup (bcryptjs)
+- ✅ Environment-based configuration
 
-### 3. Các Tính Năng Nâng Cao
-- [ ] Thông báo real-time (Socket.io)
-- [ ] Bảng điều khiển phân tích và báo cáo
-- [ ] Quản lý kho hàng cho các sản phẩm spa
-- [ ] Hệ thống đánh giá và xếp hạng của khách hàng
-- [ ] Hỗ trợ đa ngôn ngữ (i18n)
-- [ ] Hệ thống audit logging
-
-### 4. Testing & Chất Lượng
-- [ ] Tăng unit test coverage (auth, user, branch services)
-- [ ] Thêm integration tests
-- [ ] Performance testing và tối ưu hóa
-- [ ] Các tình huống load testing
-
-### 5. Triển Khai & DevOps
-- [ ] Thiết lập CI/CD pipeline (GitHub Actions)
-- [ ] Cấu hình môi trường sản xuất
-- [ ] Thủ tục sao lưu cơ sở dữ liệu và phục hồi thảm họa
-- [ ] Thiết lập monitoring và alerting (APM)
-- [ ] Container orchestration (Kubernetes) nếu cần
-
-### 6. Tài Liệu
-- [ ] Tài liệu API endpoint (hoàn chỉnh)
-- [ ] Tài liệu database schema
-- [ ] Hướng dẫn triển khai
-- [ ] Hướng dẫn thiết lập môi trường phát triển
-- [ ] Architecture decision records (ADRs)
+### 10. API Documentation
+- ✅ Swagger/OpenAPI at `/api/docs`
+- ✅ All endpoints documented with decorators
+- ✅ Request/response schemas defined
+- ✅ Bearer token auth configured
 
 ---
 
-## Thống Kê Dự Án
+## ⚠️ Partially Completed
 
-| Chỉ Số | Giá Trị |
-|--------|--------|
-| **Framework** | NestJS 11.1.24 |
-| **Cơ Sở Dữ Liệu** | PostgreSQL với TypeORM |
-| **Ngôn Ngữ** | TypeScript 5.9.2 |
-| **Node Version** | >=20.0.0 |
-| **Tổng Số Modules** | 5 (Auth, User, Branch, Tasks, Common) |
-| **Phiên Bản API** | 1.0.0 |
-| **Giấy Phép** | MIT |
+### Authentication
+- ⚠️ JWT endpoints (login/register) structure exists but full auth flow needs integration
+- ⚠️ Role-based access control guards need to be applied to endpoints
+- ⚠️ Password verification logic not yet implemented
 
----
-
-## Stack Công Nghệ
-
-- **Backend Framework**: NestJS 11.1.24
-- **ORM**: TypeORM 0.3.26
-- **Cơ Sở Dữ Liệu**: PostgreSQL
-- **Xác Thực**: JWT (RS256) + Passport.js
-- **Tài Liệu API**: Swagger/OpenAPI
-- **Testing**: Jest 29.7.0
-- **Chất Lượng Code**: ESLint, Prettier, Husky
-- **Container**: Docker & Docker Compose
-- **Bảo Mật**: Helmet, bcryptjs, CASL (access control)
+### Testing
+- ⚠️ Test structure exists (Jest setup)
+- ⚠️ Unit tests need implementation
+- ⚠️ E2E tests need implementation
 
 ---
 
-## Lệnh Bắt Đầu Nhanh
+## 🔄 To-Do / Future Features
 
-```bash
-# Phát Triển
-npm install
-npm run start:dev
+### Phase 1: Core Features (High Priority)
+- [ ] Implement complete authentication flow (login/register/logout)
+- [ ] Add JWT token refresh mechanism
+- [ ] Implement role-based access control (RBAC) on all endpoints
+- [ ] Add comprehensive error handling and logging
+- [ ] Implement unit tests for all services
 
-# Build & Sản Xuất
-npm run build
-npm run start:prod
+### Phase 2: Business Logic (Medium Priority)
+- [ ] Booking module (appointments/reservations)
+- [ ] Staff scheduling and availability
+- [ ] Customer loyalty/points system
+- [ ] Payment integration
+- [ ] Invoice and receipt generation
 
-# Testing
-npm test
-npm run test:cov
-npm run test:e2e
+### Phase 3: Advanced Features (Low Priority)
+- [ ] Real-time notifications (Socket.io)
+- [ ] Analytics and reporting dashboard
+- [ ] Inventory management for products
+- [ ] Customer review and rating system
+- [ ] Multi-language support (i18n)
+- [ ] Audit logging system
 
-# Cơ Sở Dữ Liệu
-npm run schema:sync
-npm run migration:run
+### Phase 4: Deployment & DevOps
+- [ ] CI/CD pipeline (GitHub Actions)
+- [ ] Production environment setup
+- [ ] Database backup strategy
+- [ ] Application monitoring (APM)
+- [ ] Load testing and performance optimization
 
-# Docker
-npm run docker:up
-npm run docker:down
+---
 
-# Chất Lượng Code
-npm run lint
-npm run format
+## 📊 Project Statistics
+
+| Metric | Value |
+|--------|-------|
+| **Modules** | 5 (User, Branch, Service, BranchService, Common) |
+| **Controllers** | 3 (Branch, Service, BranchService) |
+| **Services** | 3 (Branch, Service, BranchService) |
+| **Entities** | 4 (User, Branch, Service, BranchService) |
+| **Tables** | 4 (users, branches, services, branch_services) |
+| **Routes** | 25 total endpoints |
+| **Enums** | 3 (UserRole, BranchStatus, ServiceStatus) |
+| **DTOs** | 6 (CreateBranch, UpdateBranch, CreateService, UpdateService, CreateBranchService, UpdateBranchService) |
+| **Migrations** | 2 executed |
+| **API Documentation** | Swagger/OpenAPI at `/api/docs` |
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+src/
+├── modules/
+│   ├── branch/               # Branch CRUD module
+│   │   ├── entities/
+│   │   ├── dto/
+│   │   ├── enums/
+│   │   ├── branch.service.ts
+│   │   ├── branch.controller.ts
+│   │   └── branch.module.ts
+│   ├── service/              # Service CRUD module
+│   │   ├── entities/
+│   │   ├── dto/
+│   │   ├── enums/
+│   │   ├── service.service.ts
+│   │   ├── service.controller.ts
+│   │   └── service.module.ts
+│   ├── branch-service/       # Many-to-Many junction module
+│   │   ├── entities/
+│   │   ├── dto/
+│   │   ├── branch-service.service.ts
+│   │   ├── branch-service.controller.ts
+│   │   └── branch-service.module.ts
+│   ├── user/                 # User module
+│   │   ├── entities/
+│   │   ├── dto/
+│   │   ├── enums/
+│   │   ├── user.service.ts
+│   │   └── user.module.ts
+│   └── common/               # Shared utilities
+│       ├── filters/
+│       ├── interceptors/
+│       ├── decorators/
+│       └── helpers/
+├── config/                   # Database & app configuration
+├── database/
+│   └── migrations/           # TypeORM migrations
+└── app.module.ts             # Root module
 ```
 
 ---
 
-## Tình Trạng Sức Khỏe Hiện Tại 🏥
+## 🚀 Quick Start
 
-| Danh Mục | Trạng Thái | Ghi Chú |
-|----------|-----------|--------|
-| **Cơ Sở Hạ Tầng Cốt Lõi** | ✅ Xuất Sắc | Tất cả các hệ thống nền tảng đã sẵn sàng |
-| **Cơ Sở Dữ Liệu** | ✅ Xuất Sắc | TypeORM được cấu hình đúng với PostgreSQL |
-| **Xác Thực** | ⚠️ Một Phần | Cấu trúc sẵn sàng, endpoints cần xác minh |
-| **Logic Kinh Doanh** | 🔴 Chưa Hoàn Thành | Các modules chính (Tasks, Bookings) chưa triển khai |
-| **Testing** | ⚠️ Một Phần | Cấu trúc test tồn tại, coverage cần cải thiện |
-| **Tài Liệu** | ✅ Tốt | CLAUDE.md và API docs toàn diện |
-| **Bảo Mật** | ✅ Xuất Sắc | Best practices bảo mật được triển khai |
-| **DevOps** | ⚠️ Một Phần | Docker setup tồn tại, CI/CD pipeline cần thiết |
+```bash
+# Install dependencies
+npm install
 
----
+# Setup database (Docker)
+docker run -d --name aura_postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=aura_spa \
+  -p 5432:5432 \
+  postgres:16-alpine
 
-## Bước Tiếp Theo (Theo Thứ Tự Ưu Tiên)
+# Run migrations
+npm run migration:run
 
-1. **Hoàn Thành Quy Trình Xác Thực** - Xác minh các endpoints login/register hoạt động đúng
-2. **Triển Khai Tasks Module** - Thêm các hoạt động CRUD đầy đủ
-3. **Thêm Module Booking** - Tính năng kinh doanh cốt lõi cho quản lý spa
-4. **Tăng Test Coverage** - Cải thiện unit test coverage lên >80%
-5. **Thiết Lập CI/CD Pipeline** - Tự động hóa testing và triển khai
-6. **Tối Ưu Hóa Hiệu Năng** - Tối ưu hóa truy vấn cơ sở dữ liệu, chiến lược caching
-7. **Phân Tích & Monitoring** - Thêm logging, monitoring, và performance tracking
+# Start development server (hot-reload)
+npm run start:dev
 
----
-
-## Ghi Chú
-
-- Dự án sử dụng **kiến trúc module** theo NestJS best practices
-- **Tiếp cận bảo mật hàng đầu** với JWT, RBAC, và hash mật khẩu thích hợp
-- **PostgreSQL** với indexing thích hợp trên các trường thường xuyên truy vấn
-- **Tài liệu Swagger** tự động tạo tại `/api/docs`
-- Tất cả **biến môi trường** có thể cấu hình qua tệp `.env`
-- **Docker support** cho triển khai dễ dàng
+# View API docs
+# Open http://localhost:3000/api/docs
+```
 
 ---
 
-*Được tạo: 8 tháng 6 năm 2026*
+## 📝 API Endpoints Summary
+
+### Branch Endpoints (9 routes)
+- `POST /api/branches` - Create branch
+- `GET /api/branches` - List branches
+- `GET /api/branches/by-code/:code` - Get by code
+- `GET /api/branches/by-city/:city` - Get by city
+- `GET /api/branches/nearby` - Find nearby branches
+- `GET /api/branches/:id` - Get by ID
+- `PATCH /api/branches/:id` - Update branch
+- `DELETE /api/branches/:id` - Delete branch
+
+### Service Endpoints (8 routes)
+- `POST /api/services` - Create service
+- `GET /api/services` - List services
+- `GET /api/services/by-code/:code` - Get by code
+- `GET /api/services/by-slug/:slug` - Get by slug
+- `GET /api/services/category/:category` - Get by category
+- `GET /api/services/:id` - Get by ID
+- `PATCH /api/services/:id` - Update service
+- `DELETE /api/services/:id` - Delete service
+
+### Branch-Service Endpoints (8 routes)
+- `POST /api/branch-services` - Create relationship
+- `GET /api/branch-services` - List relationships
+- `GET /api/branch-services/branch/:branchId` - Services for branch
+- `GET /api/branch-services/service/:serviceId` - Branches with service
+- `GET /api/branch-services/:id` - Get by ID
+- `GET /api/branch-services/branch/:branchId/service/:serviceId` - Get specific
+- `PATCH /api/branch-services/:id` - Update relationship
+- `DELETE /api/branch-services/:id` - Delete relationship
+- `DELETE /api/branch-services/branch/:branchId/service/:serviceId` - Delete specific
+
+---
+
+## 🔒 Security Checklist
+
+- ✅ Input validation on all DTOs
+- ✅ Unique constraints in database
+- ✅ Foreign key constraints with CASCADE delete
+- ✅ Password hashing (bcryptjs configured)
+- ✅ Environment-based configuration
+- ✅ Helmet for HTTP headers
+- ⚠️ JWT auth needs full implementation
+- ⚠️ RBAC guards need to be applied to routes
+- ⚠️ Rate limiting needs implementation
+- ⚠️ CORS needs configuration review
+
+---
+
+## 📈 Health Status
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| **Infrastructure** | ✅ Excellent | All foundational systems working |
+| **Database** | ✅ Excellent | Migrations running successfully |
+| **CRUD Operations** | ✅ Complete | All 3 main modules with full CRUD |
+| **API Endpoints** | ✅ Complete | 25 endpoints ready and documented |
+| **Authentication** | ⚠️ Partial | Framework ready, flow needs implementation |
+| **Testing** | 🔴 Not Started | Framework setup, tests needed |
+| **Documentation** | ✅ Good | Swagger docs + this progress file |
+| **Code Quality** | ✅ Good | Clean modular structure |
+
+---
+
+## 🎯 Next Steps (Priority Order)
+
+1. **Implement Authentication** - Login/register endpoints
+2. **Add Unit Tests** - For all services (80%+ coverage target)
+3. **Implement RBAC** - Apply role-based guards to protected endpoints
+4. **Add Booking Module** - Core business feature
+5. **Setup CI/CD** - GitHub Actions pipeline
+6. **Performance Testing** - Database query optimization
+7. **Add Monitoring** - Logging and APM setup
+
+---
+
+## 📋 Files Removed (Cleanup)
+
+- ❌ `CRUD_SETUP.md` - Merged into PROGRESS.md
+- ❌ `README.md` - Was empty
+- ❌ `endpoints.json` - Replaced by Swagger docs
+
+---
+
+## 💡 Key Features Implemented
+
+### Many-to-Many Relationship
+- Branch ↔ Service relationship via `branch_services` junction table
+- Supports service overrides per branch (price, duration, parallel bookings)
+- Cascading delete on foreign keys
+
+### Geographic Features
+- Latitude/longitude storage for branches
+- Haversine formula for distance calculation
+- Find nearby branches by coordinates and radius
+
+### Data Integrity
+- Unique constraints on code and name (Branch, Service)
+- Unique slug for Service
+- Unique (branch_id, service_id) pair for BranchService
+- Foreign key constraints with CASCADE delete
+
+### Flexibility
+- Override default service duration per branch
+- Override default service price per branch
+- Configurable max parallel bookings per branch-service
+- Enable/disable services per branch
+
+---
+
+*Generated: June 9, 2026 @ 1:43 PM*  
+*Framework: NestJS 11.1.24 | Database: PostgreSQL | ORM: TypeORM*

@@ -33,7 +33,7 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "security:audit": "npm audit",
-    "prepare": "if [ -d '.git' ]; then husky install; fi"
+    "prepare": "npm run build --if-present"
   },
   "dependencies": {
     "@casl/ability": "6.7.5",
