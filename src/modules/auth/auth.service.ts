@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { ERROR_CODES } from 'src/common/constants/error-codes';
 import { UserService } from 'src/modules/user/user.service';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
@@ -25,13 +26,13 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<UserProfileDto> {
     const existing = await this.userService.findByEmail(dto.email);
     if (existing) {
-      throw new ConflictException('Email is already in use');
+      throw new HttpException({ code: ERROR_CODES.EMAIL_ALREADY_EXISTS, message: 'Email is already in use' }, HttpStatus.CONFLICT);
     }
 
     if (dto.phone) {
       const existingPhone = await this.userService.findByPhone(dto.phone);
       if (existingPhone) {
-        throw new ConflictException('Phone number is already in use');
+        throw new HttpException({ code: ERROR_CODES.PHONE_ALREADY_EXISTS, message: 'Phone number is already in use' }, HttpStatus.CONFLICT);
       }
     }
 
@@ -44,7 +45,7 @@ export class AuthService {
       passwordHash,
       authProvider: AuthProvider.Email,
       // New accounts start as Active for MVP (OTP verification skipped per scope)
-      // TODO: Setup a way to send OTP emails and chage status default back to PendingVerification
+      // TODO: Setup a way to send OTP emails and change status default back to PendingVerification
       status: UserStatus.Active,
       gender: dto.gender ?? Gender.Unknown,
       dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
@@ -59,16 +60,16 @@ export class AuthService {
     const user = await this.userService.findByEmail(dto.email, { includePasswordHash: true });
 
     if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new HttpException({ code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Invalid credentials' }, HttpStatus.UNAUTHORIZED);
     }
 
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new HttpException({ code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Invalid credentials' }, HttpStatus.UNAUTHORIZED);
     }
 
     if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) {
-      throw new UnauthorizedException('Account is not active');
+      throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
     }
 
     await this.userService.updateLastLogin(user.id);
@@ -93,13 +94,13 @@ export class AuthService {
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserProfileDto> {
     const user = await this.userService.findById(userId);
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new HttpException({ code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, HttpStatus.NOT_FOUND);
     }
 
     if (dto.phone && dto.phone !== user.phone) {
       const existingPhone = await this.userService.findByPhone(dto.phone);
       if (existingPhone) {
-        throw new ConflictException('Phone number is already in use');
+        throw new HttpException({ code: ERROR_CODES.PHONE_ALREADY_EXISTS, message: 'Phone number is already in use' }, HttpStatus.CONFLICT);
       }
     }
 
