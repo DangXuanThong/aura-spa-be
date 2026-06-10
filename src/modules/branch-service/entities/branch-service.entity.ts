@@ -5,16 +5,16 @@ import { Service } from '../../service/entities/service.entity';
 @Entity('branch_services')
 @Index('IDX_branch_services_branch_service', ['branchId', 'serviceId'], { unique: true })
 export class BranchService {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
-  @Column({ name: 'branch_id', type: 'uuid', nullable: false })
+  @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'CASCADE' })
   branch?: Branch;
 
-  @Column({ name: 'service_id', type: 'uuid', nullable: false })
+  @Column({ name: 'service_id', type: 'bigint', nullable: false })
   serviceId!: string;
 
   @ManyToOne(() => Service, { onDelete: 'CASCADE' })

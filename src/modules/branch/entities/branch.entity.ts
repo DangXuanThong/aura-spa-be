@@ -5,7 +5,7 @@ import { BranchStatus } from '../enums/branch-status.enum';
 @Index('IDX_branches_code_unique', ['code'], { unique: true })
 @Index('IDX_branches_name_unique', ['name'], { unique: true })
 export class Branch {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
   @Column({ type: 'varchar', length: 50, nullable: false })
