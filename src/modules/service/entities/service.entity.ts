@@ -5,7 +5,7 @@ import { ServiceStatus } from '../enums/service-status.enum';
 @Index('IDX_services_code_unique', ['code'], { unique: true })
 @Index('IDX_services_slug_unique', ['slug'], { unique: true })
 export class Service {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
   @Column({ type: 'varchar', length: 100, nullable: false })

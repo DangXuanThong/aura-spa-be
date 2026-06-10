@@ -5,7 +5,7 @@ import { Service } from '../../service/entities/service.entity';
 @Entity('branch_services')
 @Index('IDX_branch_services_branch_service', ['branchId', 'serviceId'], { unique: true })
 export class BranchService {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
   @Column({ name: 'branch_id', type: 'uuid', nullable: false })
