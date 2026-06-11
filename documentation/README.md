@@ -6,3 +6,4 @@ This is the documentation for the project. It is written in Markdown and can be 
 
 - [Auth](./auth.md)
 - [Config](./config.md)
+- [Seeding](./seeding.md)
