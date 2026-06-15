@@ -80,3 +80,19 @@ export class GetProfileResponseDto {
   @ApiProperty()
   data!: UserProfileDto;
 }
+
+export class VerifyEmailResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty()
+  data!: UserProfileDto;
+}
+
+export class ResendOtpResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ example: { message: 'OTP sent' } })
+  data!: { message: string };
+}

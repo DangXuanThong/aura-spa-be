@@ -1,5 +1,4 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { ERROR_CODES } from 'src/common/constants/error-codes';
@@ -13,13 +12,16 @@ import { UpdateProfileDto } from 'src/modules/user/dto/update-profile.dto';
 import { LoginResponseData, UserProfileDto } from './dto/auth-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { User } from 'src/modules/user/entities/user.entity';
+import { OtpService } from './otp.service';
+import { MailService } from 'src/modules/mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly otpService: OtpService,
+    private readonly mailService: MailService,
   ) {}
 
   // UC01 — Register Account
@@ -37,20 +39,22 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
+    const normalizedEmail = dto.email.trim().toLowerCase();
 
     const user = await this.userService.create({
       fullName: dto.fullName,
-      email: dto.email.trim().toLowerCase(),
+      email: normalizedEmail,
       phone: dto.phone ?? null,
       passwordHash,
       authProvider: AuthProvider.Email,
-      // New accounts start as Active for MVP (OTP verification skipped per scope)
-      // TODO: Setup a way to send OTP emails and change status default back to PendingVerification
-      status: UserStatus.Active,
+      status: UserStatus.PendingVerification,
       gender: dto.gender ?? Gender.Unknown,
       dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
       address: dto.address ?? null,
     });
+
+    const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'register');
+    await this.mailService.sendOtpEmail(normalizedEmail, otp);
 
     return this.toProfileDto(user);
   }
@@ -66,6 +70,13 @@ export class AuthService {
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
       throw new HttpException({ code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Invalid credentials' }, HttpStatus.UNAUTHORIZED);
+    }
+
+    if (user.status === UserStatus.PendingVerification) {
+      throw new HttpException(
+        { code: ERROR_CODES.ACCOUNT_PENDING_VERIFICATION, message: 'Please verify your email before logging in' },
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) {
@@ -118,6 +129,40 @@ export class AuthService {
 
     const updated = await this.userService.update(userId, updates);
     return this.toProfileDto(updated);
+  }
+
+  async verifyEmail(email: string, otp: string): Promise<UserProfileDto> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.userService.findByEmail(normalizedEmail);
+
+    if (!user) {
+      throw new HttpException({ code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, HttpStatus.NOT_FOUND);
+    }
+
+    if (user.status !== UserStatus.PendingVerification) {
+      throw new HttpException({ code: ERROR_CODES.VALIDATION_ERROR, message: 'Account is already verified' }, HttpStatus.BAD_REQUEST);
+    }
+
+    await this.otpService.verifyOtp(normalizedEmail, 'register', otp);
+
+    const updated = await this.userService.update(user.id, { status: UserStatus.Active });
+    return this.toProfileDto(updated);
+  }
+
+  async resendOtp(email: string): Promise<void> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.userService.findByEmail(normalizedEmail);
+
+    if (!user) {
+      throw new HttpException({ code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, HttpStatus.NOT_FOUND);
+    }
+
+    if (user.status !== UserStatus.PendingVerification) {
+      throw new HttpException({ code: ERROR_CODES.VALIDATION_ERROR, message: 'Account is already verified' }, HttpStatus.BAD_REQUEST);
+    }
+
+    const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'register');
+    await this.mailService.sendOtpEmail(normalizedEmail, otp);
   }
 
   // Helper — strip sensitive fields and return public profile shape
