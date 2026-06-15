@@ -4,13 +4,17 @@ import { ApiResponse, buildSuccessResponse } from 'src/common/dto/api-response.d
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
 import {
   GetProfileResponseDto,
   LoginResponseData,
   LoginResponseDto,
   LogoutResponseDto,
   RegisterResponseDto,
+  ResendOtpResponseDto,
   UserProfileDto,
+  VerifyEmailResponseDto,
 } from './dto/auth-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { UpdateProfileDto } from 'src/modules/user/dto/update-profile.dto';
@@ -78,5 +82,21 @@ export class AuthController {
   async updateProfile(@Request() req: RequestWithUser, @Body() dto: UpdateProfileDto): Promise<ApiResponse<UserProfileDto>> {
     const updated = await this.authService.updateProfile(req.user.id, dto);
     return buildSuccessResponse(updated);
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: VerifyEmailResponseDto })
+  async verifyEmail(@Body() dto: VerifyEmailDto): Promise<ApiResponse<UserProfileDto>> {
+    const user = await this.authService.verifyEmail(dto.email, dto.otp);
+    return buildSuccessResponse(user);
+  }
+
+  @Post('resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ResendOtpResponseDto })
+  async resendOtp(@Body() dto: ResendOtpDto): Promise<ApiResponse<{ message: string }>> {
+    await this.authService.resendOtp(dto.email);
+    return buildSuccessResponse({ message: 'OTP sent' });
   }
 }

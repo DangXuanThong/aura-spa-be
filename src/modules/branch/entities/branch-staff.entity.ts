@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { User } from 'src/modules/user/entities/user.entity';
 import { StaffStatus } from '../enums/staff-status.enum';
@@ -16,12 +16,14 @@ export class BranchStaff {
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'user_id', type: 'bigint', nullable: false })
   userId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'user_id' })
   user?: User;
 
   @Column({ name: 'staff_code', type: 'varchar', length: 50, nullable: true })

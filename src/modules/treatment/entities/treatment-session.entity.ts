@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
@@ -18,18 +18,21 @@ export class TreatmentSession {
   treatmentCourseId!: string;
 
   @ManyToOne(() => TreatmentCourse, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'treatment_course_id' })
   treatmentCourse?: TreatmentCourse;
 
   @Column({ name: 'booking_id', type: 'bigint', nullable: true })
   bookingId!: string | null;
 
   @ManyToOne(() => Booking, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'booking_id' })
   booking?: Booking;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: false })
   serviceId!: string;
 
   @ManyToOne(() => Service, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ name: 'session_number', type: 'int', nullable: false })
@@ -48,6 +51,7 @@ export class TreatmentSession {
   staffId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'staff_id' })
   staff?: User;
 
   @Column({ name: 'progress_note', type: 'text', nullable: true })

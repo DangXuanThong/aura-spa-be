@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 
@@ -13,12 +13,14 @@ export class HealthRecord {
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: true })
   branchId!: string | null;
 
   @ManyToOne(() => Branch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ type: 'text', nullable: true })
@@ -43,12 +45,14 @@ export class HealthRecord {
   createdBy!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'created_by' })
   createdByUser?: User;
 
   @Column({ name: 'updated_by', type: 'bigint', nullable: true })
   updatedBy!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'updated_by' })
   updatedByUser?: User;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

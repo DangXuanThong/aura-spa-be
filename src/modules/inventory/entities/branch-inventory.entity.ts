@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { InventoryItem } from './inventory-item.entity';
 
@@ -15,12 +15,14 @@ export class BranchInventory {
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'inventory_item_id', type: 'bigint', nullable: false })
   inventoryItemId!: string;
 
   @ManyToOne(() => InventoryItem, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'inventory_item_id' })
   inventoryItem?: InventoryItem;
 
   @Column({ name: 'current_quantity', type: 'decimal', precision: 10, scale: 3, default: 0, nullable: false })

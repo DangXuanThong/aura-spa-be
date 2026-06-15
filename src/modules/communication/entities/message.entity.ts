@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Conversation } from './conversation.entity';
 import { SenderType } from '../enums/sender-type.enum';
@@ -15,12 +15,14 @@ export class Message {
   conversationId!: string;
 
   @ManyToOne(() => Conversation, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'conversation_id' })
   conversation?: Conversation;
 
   @Column({ name: 'sender_user_id', type: 'bigint', nullable: true })
   senderUserId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'sender_user_id' })
   senderUser?: User;
 
   @Column({

@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
@@ -22,24 +22,28 @@ export class Booking {
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'technician_id', type: 'bigint', nullable: true })
   technicianId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'technician_id' })
   technician?: User;
 
   @Column({ name: 'discount_code_id', type: 'bigint', nullable: true })
   discountCodeId!: string | null;
 
   @ManyToOne(() => DiscountCode, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'discount_code_id' })
   discountCode?: DiscountCode;
 
   @Column({ name: 'start_time', type: 'timestamptz', nullable: false })

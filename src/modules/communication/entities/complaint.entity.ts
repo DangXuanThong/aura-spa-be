@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
@@ -19,18 +19,21 @@ export class Complaint {
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'booking_id', type: 'bigint', nullable: true })
   bookingId!: string | null;
 
   @ManyToOne(() => Booking, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'booking_id' })
   booking?: Booking;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
@@ -52,6 +55,7 @@ export class Complaint {
   assignedTo!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'assigned_to' })
   assignedUser?: User;
 
   @Column({ name: 'resolution_note', type: 'text', nullable: true })

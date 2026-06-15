@@ -1,4 +1,4 @@
-import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 
 @Entity('branch_opening_hours')
@@ -11,6 +11,7 @@ export class BranchOpeningHours {
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'day_of_week', type: 'int', nullable: false })

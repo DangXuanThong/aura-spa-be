@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Promotion } from './promotion.entity';
 import { DiscountCodeStatus } from '../enums/discount-code-status.enum';
 
@@ -14,6 +14,7 @@ export class DiscountCode {
   promotionId!: string;
 
   @ManyToOne(() => Promotion, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'promotion_id' })
   promotion?: Promotion;
 
   @Column({ type: 'varchar', length: 100, nullable: false })
