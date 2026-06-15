@@ -57,7 +57,7 @@ export class User {
   @Column({
     type: 'enum',
     enum: Gender,
-    enumName: 'enum',
+    enumName: 'gender',
     default: Gender.Unknown,
   })
   gender!: Gender;

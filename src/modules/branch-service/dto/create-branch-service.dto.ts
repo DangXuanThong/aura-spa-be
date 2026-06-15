@@ -1,15 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDecimal, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsBoolean, IsDecimal, IsInt, IsNotEmpty, IsNumberString, IsOptional, Min } from 'class-validator';
 
 export class CreateBranchServiceDto {
-  @ApiProperty({ description: 'Branch ID', format: 'uuid' })
+  @ApiProperty({ description: 'Branch ID' })
   @IsNotEmpty()
-  @IsUUID()
+  @IsNumberString()
   branchId!: string;
 
-  @ApiProperty({ description: 'Service ID', format: 'uuid' })
+  @ApiProperty({ description: 'Service ID' })
   @IsNotEmpty()
-  @IsUUID()
+  @IsNumberString()
   serviceId!: string;
 
   @ApiPropertyOptional({ description: 'Is this service enabled for this branch', default: true })

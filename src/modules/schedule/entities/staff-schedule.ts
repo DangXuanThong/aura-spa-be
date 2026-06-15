@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { ScheduleRequest } from './schedule-request.entity';
@@ -19,12 +19,14 @@ export class StaffSchedule {
   staffId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'staff_id' })
   staff?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'start_time', type: 'timestamptz', nullable: false })
@@ -56,12 +58,14 @@ export class StaffSchedule {
   sourceRequestId!: string | null;
 
   @ManyToOne(() => ScheduleRequest, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'source_request_id' })
   sourceRequest?: ScheduleRequest;
 
   @Column({ name: 'created_by', type: 'bigint', nullable: true })
   createdBy!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'created_by' })
   createdByUser?: User;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
