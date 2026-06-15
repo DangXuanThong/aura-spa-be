@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
@@ -21,30 +21,35 @@ export class Review {
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'booking_id', type: 'bigint', nullable: false })
   bookingId!: string;
 
   @ManyToOne(() => Booking, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'booking_id' })
   booking?: Booking;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: true })
   serviceId!: string | null;
 
   @ManyToOne(() => Service, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'technician_id', type: 'bigint', nullable: true })
   technicianId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'technician_id' })
   technician?: User;
 
   @Column({ type: 'int', nullable: false })
@@ -69,6 +74,7 @@ export class Review {
   repliedBy!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'replied_by' })
   repliedByUser?: User;
 
   @Column({ name: 'replied_at', type: 'timestamptz', nullable: true })

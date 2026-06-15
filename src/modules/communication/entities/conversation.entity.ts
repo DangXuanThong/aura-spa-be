@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { ConversationStatus } from '../enums/conversation-status.enum';
@@ -17,18 +17,21 @@ export class Conversation {
   customerId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: true })
   branchId!: string | null;
 
   @ManyToOne(() => Branch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'assigned_staff_id', type: 'bigint', nullable: true })
   assignedStaffId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'assigned_staff_id' })
   assignedStaff?: User;
 
   @Column({ name: 'guest_name', type: 'varchar', length: 255, nullable: true })

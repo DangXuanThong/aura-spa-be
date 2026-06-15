@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
@@ -23,18 +23,21 @@ export class Invoice {
   bookingId!: string | null;
 
   @ManyToOne(() => Booking, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'booking_id' })
   booking?: Booking;
 
   @Column({ name: 'customer_id', type: 'bigint', nullable: false })
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: false })
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({

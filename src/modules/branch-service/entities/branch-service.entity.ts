@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Branch } from '../../branch/entities/branch.entity';
 import { Service } from '../../service/entities/service.entity';
 
@@ -12,12 +12,14 @@ export class BranchService {
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: false })
   serviceId!: string;
 
   @ManyToOne(() => Service, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ name: 'is_enabled', type: 'boolean', default: true, nullable: false })

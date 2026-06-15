@@ -1,4 +1,4 @@
-import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Invoice } from './invoice.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
 
@@ -13,12 +13,14 @@ export class InvoiceItem {
   invoiceId!: string;
 
   @ManyToOne(() => Invoice, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'invoice_id' })
   invoice?: Invoice;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: true })
   serviceId!: string | null;
 
   @ManyToOne(() => Service, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ type: 'text', nullable: false })

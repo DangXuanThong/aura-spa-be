@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
@@ -22,12 +22,14 @@ export class InventoryTransaction {
   branchId!: string;
 
   @ManyToOne(() => Branch, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'inventory_item_id', type: 'bigint', nullable: false })
   inventoryItemId!: string;
 
   @ManyToOne(() => InventoryItem, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'inventory_item_id' })
   inventoryItem?: InventoryItem;
 
   @Column({
@@ -49,18 +51,21 @@ export class InventoryTransaction {
   bookingId!: string | null;
 
   @ManyToOne(() => Booking, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'booking_id' })
   booking?: Booking;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: true })
   serviceId!: string | null;
 
   @ManyToOne(() => Service, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ name: 'staff_id', type: 'bigint', nullable: true })
   staffId!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'staff_id' })
   staff?: User;
 
   @Column({ type: 'text', nullable: true })
@@ -70,6 +75,7 @@ export class InventoryTransaction {
   createdBy!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'created_by' })
   createdByUser?: User;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

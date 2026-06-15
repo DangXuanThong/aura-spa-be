@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { DiscountType } from '../enums/discount-type.enum';
 import { PromotionStatus } from '../enums/promotion-status.enum';
@@ -24,6 +24,7 @@ export class Promotion {
   branchId!: string | null; // null = system-wide promotion
 
   @ManyToOne(() => Branch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({

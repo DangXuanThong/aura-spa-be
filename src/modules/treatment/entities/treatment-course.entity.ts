@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
@@ -18,24 +18,28 @@ export class TreatmentCourse {
   customerId!: string;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'customer_id' })
   customer?: User;
 
   @Column({ name: 'service_id', type: 'bigint', nullable: false })
   serviceId!: string;
 
   @ManyToOne(() => Service, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'service_id' })
   service?: Service;
 
   @Column({ name: 'branch_id', type: 'bigint', nullable: true })
   branchId!: string | null;
 
   @ManyToOne(() => Branch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'branch_id' })
   branch?: Branch;
 
   @Column({ name: 'purchase_invoice_id', type: 'bigint', nullable: true })
   purchaseInvoiceId!: string | null;
 
   @ManyToOne(() => Invoice, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'purchase_invoice_id' })
   purchaseInvoice?: Invoice;
 
   @Column({ name: 'total_sessions', type: 'int', nullable: false })
