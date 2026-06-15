@@ -1,5 +1,4 @@
-export enum ServiceStatus {
-  Draft = 'draft',
+export enum InventoryItemStatus {
   Active = 'active',
   Inactive = 'inactive',
   Archived = 'archived',
