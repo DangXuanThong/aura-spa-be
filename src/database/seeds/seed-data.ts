@@ -335,7 +335,9 @@ export const DEMO_CONVERSATIONS = [
     staffReply: {
       staffEmail: 'duc.nguyen@aura-spa.com',
       message:
-        'Chào bạn! Dịch vụ massage body thư giãn tại chi nhánh Quận 7 có giá 500.000đ/90 phút. Bạn nên đặt lịch trước để đảm bảo có chỗ, đặc biệt vào cuối tuần. Bạn có thể đặt qua ứng dụng hoặc gọi trực tiếp cho chúng mình nhé!',
+        'Chào bạn! Dịch vụ massage body thư giãn tại Quận 7 có giá 500.000đ/90 phút. ' +
+        'Bạn nên đặt lịch trước để đảm bảo có chỗ, đặc biệt vào cuối tuần. ' +
+        'Bạn có thể đặt qua ứng dụng hoặc gọi trực tiếp cho chúng mình nhé!',
     },
   },
   {
@@ -348,7 +350,8 @@ export const DEMO_CONVERSATIONS = [
     staffReply: {
       staffEmail: 'bich.tran@aura-spa.com',
       message:
-        'Chào bạn! Để đặt lịch, bạn có thể đăng ký tài khoản trên ứng dụng và chọn dịch vụ, chi nhánh và khung giờ phù hợp. Về thanh toán, spa chấp nhận tiền mặt, chuyển khoản ngân hàng và thẻ tín dụng/ghi nợ. Bạn cần hỗ trợ thêm gì không ạ?',
+        'Chào bạn! Để đặt lịch, bạn đăng ký tài khoản trên ứng dụng và chọn dịch vụ, chi nhánh, khung giờ phù hợp. ' +
+        'Về thanh toán, spa chấp nhận tiền mặt, chuyển khoản và thẻ tín dụng/ghi nợ. Bạn cần hỗ trợ thêm gì không ạ?',
     },
   },
 ];
