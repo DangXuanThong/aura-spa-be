@@ -66,8 +66,9 @@ export class BranchController {
   @Get()
   @ApiOkResponse({ description: 'List of branches', type: [BranchResponseDto] })
   @ApiQuery({ name: 'status', enum: BranchStatus, enumName: 'BranchStatus', required: false })
-  async findAll(@Query('status') status?: BranchStatus): Promise<BranchResponseDto[]> {
-    const branches = await this.branchService.findAll(status);
+  @ApiQuery({ name: 'search', type: String, required: false, description: 'Filter by branch name (case-insensitive)' })
+  async findAll(@Query('status') status?: BranchStatus, @Query('search') search?: string): Promise<BranchResponseDto[]> {
+    const branches = await this.branchService.findAll(status, search);
     return plainToInstance(BranchResponseDto, branches);
   }
 
