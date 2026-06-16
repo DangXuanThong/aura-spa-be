@@ -6,15 +6,23 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { BranchService } from './branch.service';
+import { BranchOpeningHoursService } from './branch-opening-hours.service';
+import { BranchServiceService } from 'src/modules/branch-service/branch-service.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { BranchResponseDto } from './dto/branch-response.dto';
+import { BranchOpeningHoursResponseDto } from './dto/branch-opening-hours-response.dto';
+import { BranchServiceDetailResponseDto } from './dto/branch-service-detail-response.dto';
 import { BranchStatus } from './enums/branch-status.enum';
 
 @ApiTags('Branches')
 @Controller('branches')
 export class BranchController {
-  constructor(private readonly branchService: BranchService) {}
+  constructor(
+    private readonly branchService: BranchService,
+    private readonly branchOpeningHoursService: BranchOpeningHoursService,
+    private readonly branchServiceService: BranchServiceService,
+  ) {}
 
   // ── Owner-only: mutating routes ──────────────────────────────────────────
 
@@ -93,5 +101,32 @@ export class BranchController {
   async findOne(@Param('id') id: string): Promise<BranchResponseDto> {
     const branch = await this.branchService.findOne(id);
     return plainToInstance(BranchResponseDto, branch);
+  }
+
+  // UC05 — Guest Browsing: branch sub-resources ────────────────────────────
+
+  @Get(':id/opening-hours')
+  @ApiOkResponse({ description: 'Opening hours for a branch ordered by day of week', type: [BranchOpeningHoursResponseDto] })
+  async getOpeningHours(@Param('id') id: string): Promise<BranchOpeningHoursResponseDto[]> {
+    const hours = await this.branchOpeningHoursService.findByBranch(id);
+    return plainToInstance(BranchOpeningHoursResponseDto, hours);
+  }
+
+  @Get(':id/services')
+  @ApiOkResponse({ description: 'Services offered at this branch with effective pricing and duration', type: [BranchServiceDetailResponseDto] })
+  async getBranchServices(@Param('id') id: string): Promise<BranchServiceDetailResponseDto[]> {
+    const items = await this.branchServiceService.getEnabledServicesWithDetailsByBranch(id);
+    return items.map((bs) =>
+      plainToInstance(BranchServiceDetailResponseDto, {
+        id: bs.id,
+        branchId: bs.branchId,
+        serviceId: bs.serviceId,
+        isEnabled: bs.isEnabled,
+        effectiveDurationMinutes: bs.durationMinutesOverride ?? bs.service!.defaultDurationMinutes,
+        effectivePrice: parseFloat((bs.priceOverride ?? bs.service!.defaultPrice) as unknown as string),
+        maxParallelBookings: bs.maxParallelBookings,
+        service: bs.service,
+      }),
+    );
   }
 }
