@@ -14,6 +14,7 @@ import { JwtPayload } from './strategies/jwt.strategy';
 import { User } from 'src/modules/user/entities/user.entity';
 import { OtpService } from './otp.service';
 import { MailService } from 'src/modules/mail/mail.service';
+import { GoogleProfile } from './strategies/google.strategy';
 
 @Injectable()
 export class AuthService {
@@ -147,6 +148,47 @@ export class AuthService {
 
     const updated = await this.userService.update(user.id, { status: UserStatus.Active });
     return this.toProfileDto(updated);
+  }
+
+  async googleLogin(profile: GoogleProfile): Promise<LoginResponseData> {
+    if (!profile.email) {
+      throw new HttpException({ code: ERROR_CODES.VALIDATION_ERROR, message: 'Google account has no associated email' }, HttpStatus.BAD_REQUEST);
+    }
+
+    const normalizedEmail = profile.email.trim().toLowerCase();
+    let user = await this.userService.findByEmail(normalizedEmail);
+
+    if (user) {
+      if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) {
+        throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
+      }
+      if (user.status === UserStatus.PendingVerification) {
+        user = await this.userService.update(user.id, { status: UserStatus.Active });
+      }
+    } else {
+      user = await this.userService.create({
+        fullName: profile.fullName || 'Google User',
+        email: normalizedEmail,
+        phone: null,
+        passwordHash: null,
+        authProvider: AuthProvider.Google,
+        status: UserStatus.Active,
+        gender: Gender.Unknown,
+        dateOfBirth: null,
+        address: null,
+      });
+    }
+
+    if (profile.avatarUrl && !user.avatarUrl) {
+      user = await this.userService.update(user.id, { avatarUrl: profile.avatarUrl });
+    }
+
+    await this.userService.updateLastLogin(user.id);
+
+    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
+    const accessToken = this.jwtService.sign(payload);
+
+    return { accessToken, user: this.toProfileDto(user) };
   }
 
   async forgotPassword(email: string): Promise<void> {

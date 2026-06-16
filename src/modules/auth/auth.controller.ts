@@ -21,6 +21,7 @@ import {
   VerifyEmailResponseDto,
 } from './dto/auth-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { UpdateProfileDto } from 'src/modules/user/dto/update-profile.dto';
 import { User } from 'src/modules/user/entities/user.entity';
 
@@ -118,5 +119,19 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<ApiResponse<{ message: string }>> {
     await this.authService.resetPassword(dto.email, dto.otp, dto.newPassword);
     return buildSuccessResponse({ message: 'Password reset successfully' });
+  }
+
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  googleAuth(): void {
+    // Guard redirects to Google — body never executes
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOkResponse({ type: LoginResponseDto })
+  async googleCallback(@Request() req: RequestWithUser): Promise<ApiResponse<LoginResponseData>> {
+    const result = await this.authService.googleLogin(req.user as any);
+    return buildSuccessResponse(result);
   }
 }
