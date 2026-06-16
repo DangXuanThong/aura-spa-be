@@ -96,3 +96,19 @@ export class ResendOtpResponseDto {
   @ApiProperty({ example: { message: 'OTP sent' } })
   data!: { message: string };
 }
+
+export class ForgotPasswordResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ example: { message: 'If the email is registered, an OTP has been sent' } })
+  data!: { message: string };
+}
+
+export class ResetPasswordResponseDto {
+  @ApiProperty({ example: true })
+  success!: true;
+
+  @ApiProperty({ example: { message: 'Password reset successfully' } })
+  data!: { message: string };
+}

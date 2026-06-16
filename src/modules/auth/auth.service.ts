@@ -149,6 +149,40 @@ export class AuthService {
     return this.toProfileDto(updated);
   }
 
+  async forgotPassword(email: string): Promise<void> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.userService.findByEmail(normalizedEmail);
+
+    // Silently return for unknown emails or suspended/deleted accounts to prevent enumeration
+    if (!user) return;
+    if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) return;
+
+    const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'reset_password');
+    await this.mailService.sendOtpEmail(normalizedEmail, otp);
+  }
+
+  async resetPassword(email: string, otp: string, newPassword: string): Promise<void> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.userService.findByEmail(normalizedEmail);
+
+    if (!user) {
+      throw new HttpException({ code: ERROR_CODES.NOT_FOUND, message: 'User not found' }, HttpStatus.NOT_FOUND);
+    }
+
+    if (user.status === UserStatus.Suspended || user.status === UserStatus.Deleted) {
+      throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
+    }
+
+    await this.otpService.verifyOtp(normalizedEmail, 'reset_password', otp);
+
+    const updates: Partial<User> = { passwordHash: await bcrypt.hash(newPassword, 12) };
+    if (user.status === UserStatus.PendingVerification) {
+      updates.status = UserStatus.Active;
+    }
+
+    await this.userService.update(user.id, updates);
+  }
+
   async resendOtp(email: string): Promise<void> {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.userService.findByEmail(normalizedEmail);
