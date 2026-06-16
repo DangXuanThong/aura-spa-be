@@ -16,6 +16,8 @@ import { PaymentSeeder } from './payment.seeder';
 import { ReviewSeeder } from './review.seeder';
 import { HealthSeeder } from './health.seeder';
 import { InventorySeeder } from './inventory.seeder';
+import { PromotionSeeder } from './promotion.seeder';
+import { ConversationSeeder } from './conversation.seeder';
 import { OWNER, CUSTOMERS, STAFF, BRANCHES, SERVICES } from './seed-data';
 
 @Injectable()
@@ -36,6 +38,8 @@ export class SeederService implements OnApplicationBootstrap {
     private readonly reviewSeeder: ReviewSeeder,
     private readonly healthSeeder: HealthSeeder,
     private readonly inventorySeeder: InventorySeeder,
+    private readonly promotionSeeder: PromotionSeeder,
+    private readonly conversationSeeder: ConversationSeeder,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -51,6 +55,8 @@ export class SeederService implements OnApplicationBootstrap {
     await this.reviewSeeder.seed();
     await this.healthSeeder.seed();
     await this.inventorySeeder.seed();
+    await this.promotionSeeder.seed();
+    await this.conversationSeeder.seed();
   }
 
   // ── Owner ────────────────────────────────────────────────────────────────

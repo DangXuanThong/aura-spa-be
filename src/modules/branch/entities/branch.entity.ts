@@ -24,10 +24,10 @@ export class Branch {
   district!: string | null;
 
   @Column({ type: 'numeric', precision: 10, scale: 8, nullable: false })
-  latitude!: number; // RecommendationService dùng latitude để tính branch gần customer.
+  latitude!: number;
 
   @Column({ type: 'numeric', precision: 11, scale: 8, nullable: false })
-  longitude!: number; // RecommendationService dùng longitude cùng latitude để tính khoảng cách.
+  longitude!: number;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
   phone!: string | null;

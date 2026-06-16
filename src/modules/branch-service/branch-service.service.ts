@@ -94,6 +94,19 @@ export class BranchServiceService {
     });
   }
 
+  async getEnabledServicesWithDetailsByBranch(branchId: string): Promise<BranchService[]> {
+    const branch = await this.branchRepository.findOne({ where: { id: branchId } });
+    if (!branch) {
+      throw new NotFoundException(`Branch with ID ${branchId} not found`);
+    }
+
+    return this.branchServiceRepository.find({
+      where: { branchId, isEnabled: true },
+      relations: ['service'],
+      order: { service: { category: 'ASC', name: 'ASC' } },
+    });
+  }
+
   async getBranchesByService(serviceId: string): Promise<BranchService[]> {
     // Verify service exists
     const service = await this.serviceRepository.findOne({ where: { id: serviceId } });

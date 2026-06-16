@@ -3,6 +3,8 @@ import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
 import { BranchStatus } from 'src/modules/branch/enums/branch-status.enum';
 import { ServiceStatus } from 'src/modules/service/enums/service-status.enum';
 import { InventoryItemStatus } from 'src/modules/inventory/enums/inventory-item-status.enum';
+import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
+import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -255,5 +257,101 @@ export const INVENTORY_ITEMS = [
     minStockLevel: 20,
     status: InventoryItemStatus.Active,
     stockByBranch: { 'HCM-Q1': 50, 'HCM-Q7': 40, 'HAN-HK': 35 },
+  },
+];
+
+// ── Promotions (UC07) ─────────────────────────────────────────────────────────
+// Dates are relative to runtime so the promotions are always valid when seeded.
+
+const daysFromNow = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+export const PROMOTIONS = [
+  {
+    code: 'WELCOME-ACTIVE',
+    name: 'Khuyến mãi chào mừng',
+    description: 'Giảm 20% tất cả dịch vụ chăm sóc da. Áp dụng toàn hệ thống.',
+    branchCode: null, // system-wide
+    discountType: DiscountType.Percentage,
+    discountValue: 20,
+    maxDiscountAmount: 200000,
+    minOrderAmount: 300000,
+    usageLimitTotal: 500,
+    usageLimitPerCustomer: 2,
+    startsAt: daysFromNow(-30), // started 30 days ago
+    endsAt: daysFromNow(60), // ends 60 days from now
+    status: PromotionStatus.Active,
+  },
+  {
+    code: 'HCM-Q1-WELCOME',
+    name: 'Ưu đãi chào mừng – Chi nhánh Quận 1',
+    description: 'Giảm 100.000đ cho lần đầu trải nghiệm dịch vụ tại chi nhánh Quận 1.',
+    branchCode: 'HCM-Q1',
+    discountType: DiscountType.FixedAmount,
+    discountValue: 100000,
+    maxDiscountAmount: null,
+    minOrderAmount: 200000,
+    usageLimitTotal: 100,
+    usageLimitPerCustomer: 1,
+    startsAt: daysFromNow(-15),
+    endsAt: daysFromNow(45),
+    status: PromotionStatus.Active,
+  },
+  {
+    code: 'SKINCARE-UPCOMING',
+    name: 'Gói chăm sóc da chuyên sâu',
+    description: 'Giảm 15% cho các liệu trình chăm sóc da chuyên sâu. Sắp ra mắt.',
+    branchCode: null,
+    discountType: DiscountType.Percentage,
+    discountValue: 15,
+    maxDiscountAmount: 150000,
+    minOrderAmount: 500000,
+    usageLimitTotal: 200,
+    usageLimitPerCustomer: 3,
+    startsAt: daysFromNow(15), // starts 15 days from now
+    endsAt: daysFromNow(105),
+    status: PromotionStatus.Draft,
+  },
+];
+
+// ── Conversations (UC08) ──────────────────────────────────────────────────────
+
+export const DEMO_CONVERSATIONS = [
+  {
+    guestName: 'Nguyen Thi Tuyet',
+    guestEmail: 'tuyet.nguyen@gmail.com',
+    guestPhone: '0909111222',
+    branchCode: null, // system-wide inquiry
+    subject: 'Hỏi về gói liệu trình chăm sóc da mặt',
+    initialMessage: 'Chào spa, mình muốn hỏi thêm về gói liệu trình chăm sóc da mặt chuyên sâu. Liệu trình gồm mấy buổi và giá bao nhiêu ạ?',
+    staffReply: null, // open, no reply yet
+  },
+  {
+    guestName: 'Le Van Khoa',
+    guestEmail: 'khoa.le@gmail.com',
+    guestPhone: '0912333444',
+    branchCode: 'HCM-Q7',
+    subject: 'Hỏi về giá dịch vụ massage',
+    initialMessage: 'Cho mình hỏi dịch vụ massage body tại chi nhánh Quận 7 giá bao nhiêu và có cần đặt trước không ạ?',
+    staffReply: {
+      staffEmail: 'duc.nguyen@aura-spa.com',
+      message:
+        'Chào bạn! Dịch vụ massage body thư giãn tại Quận 7 có giá 500.000đ/90 phút. ' +
+        'Bạn nên đặt lịch trước để đảm bảo có chỗ, đặc biệt vào cuối tuần. ' +
+        'Bạn có thể đặt qua ứng dụng hoặc gọi trực tiếp cho chúng mình nhé!',
+    },
+  },
+  {
+    guestName: 'Pham Thi Hong',
+    guestEmail: 'hong.pham@gmail.com',
+    guestPhone: '0933555666',
+    branchCode: 'HAN-HK',
+    subject: 'Hỏi quy trình đặt lịch và thanh toán',
+    initialMessage: 'Mình muốn hỏi quy trình đặt lịch và hình thức thanh toán tại spa như thế nào ạ? Có chấp nhận thanh toán qua thẻ không?',
+    staffReply: {
+      staffEmail: 'bich.tran@aura-spa.com',
+      message:
+        'Chào bạn! Để đặt lịch, bạn đăng ký tài khoản trên ứng dụng và chọn dịch vụ, chi nhánh, khung giờ phù hợp. ' +
+        'Về thanh toán, spa chấp nhận tiền mặt, chuyển khoản và thẻ tín dụng/ghi nợ. Bạn cần hỗ trợ thêm gì không ạ?',
+    },
   },
 ];
