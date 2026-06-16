@@ -16,6 +16,9 @@ import { Review } from 'src/modules/review/entities/review.entity';
 import { HealthRecord } from 'src/modules/health/entities/health-record.entity';
 import { InventoryItem } from 'src/modules/inventory/entities/inventory-item.entity';
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
+import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
+import { Conversation } from 'src/modules/communication/entities/conversation.entity';
+import { Message } from 'src/modules/communication/entities/message.entity';
 import { SeederService } from './seeder.service';
 import { BranchSetupSeeder } from './branch-setup.seeder';
 import { BookingSeeder } from './booking.seeder';
@@ -23,6 +26,8 @@ import { PaymentSeeder } from './payment.seeder';
 import { ReviewSeeder } from './review.seeder';
 import { HealthSeeder } from './health.seeder';
 import { InventorySeeder } from './inventory.seeder';
+import { PromotionSeeder } from './promotion.seeder';
+import { ConversationSeeder } from './conversation.seeder';
 
 @Module({
   imports: [
@@ -43,8 +48,21 @@ import { InventorySeeder } from './inventory.seeder';
       HealthRecord,
       InventoryItem,
       BranchInventory,
+      Promotion,
+      Conversation,
+      Message,
     ]),
   ],
-  providers: [SeederService, BranchSetupSeeder, BookingSeeder, PaymentSeeder, ReviewSeeder, HealthSeeder, InventorySeeder],
+  providers: [
+    SeederService,
+    BranchSetupSeeder,
+    BookingSeeder,
+    PaymentSeeder,
+    ReviewSeeder,
+    HealthSeeder,
+    InventorySeeder,
+    PromotionSeeder,
+    ConversationSeeder,
+  ],
 })
 export class SeederModule {}
