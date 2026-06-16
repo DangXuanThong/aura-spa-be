@@ -8,6 +8,7 @@ import { UserModule } from './modules/user/user.module';
 import { ServiceModule } from './modules/service/service.module';
 import { BranchServiceModule } from './modules/branch-service/branch-service.module';
 import { PromotionModule } from './modules/promotion/promotion.module';
+import { CommunicationModule } from './modules/communication/communication.module';
 import { databaseConfig } from './config/database.config';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { SeederModule } from 'src/database/seeds/seeder.module';
@@ -44,6 +45,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     ServiceModule,
     BranchServiceModule,
     PromotionModule,
+    CommunicationModule,
     SeederModule,
   ],
   providers: [DatabaseHealthLogger],
