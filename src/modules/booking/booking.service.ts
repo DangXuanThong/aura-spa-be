@@ -14,6 +14,7 @@ import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -232,6 +233,34 @@ export class BookingService {
     );
 
     return newBooking;
+  }
+
+  // UC12 — Cancel Appointment
+  async cancel(id: string, dto: CancelBookingDto, customerId: string): Promise<Booking> {
+    // 1. Find booking and verify ownership
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
+
+    // 2. Only upcoming bookings can be cancelled
+    const cancellableStatuses = [BookingStatus.PendingPayment, BookingStatus.Confirmed];
+    if (!cancellableStatuses.includes(booking.status)) {
+      throw new BadRequestException('Only upcoming bookings with status pending_payment or confirmed can be cancelled');
+    }
+
+    // 3. Must cancel before the scheduled start time
+    if (new Date() >= booking.startTime) {
+      throw new BadRequestException('Cannot cancel a booking that has already started');
+    }
+
+    // 4. Apply cancellation
+    await this.bookingRepo.update(id, {
+      status: BookingStatus.Cancelled,
+      cancelReason: dto.cancelReason ?? null,
+      cancelledAt: new Date(),
+    });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
 
   async findMyBookings(customerId: string): Promise<Booking[]> {

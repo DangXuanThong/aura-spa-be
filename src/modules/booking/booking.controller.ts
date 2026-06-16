@@ -19,6 +19,7 @@ import { BookingAvailabilityService } from './booking-availability.service';
 import { BookingService } from './booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -89,6 +90,21 @@ export class BookingController {
   async reschedule(@Param('id') id: string, @Body() dto: RescheduleBookingDto, @Request() req: any): Promise<BookingResponseDto> {
     const newBooking = await this.bookingService.reschedule(id, dto, req.user.id);
     return plainToInstance(BookingResponseDto, { ...newBooking, services: [] });
+  }
+
+  // ── Customer: cancel routes (UC12 — Cancel Appointment) ─────────────────
+
+  @Patch(':id/cancel')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Appointment cancelled — returns the updated booking', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required or booking does not belong to the caller' })
+  @ApiBadRequestResponse({ description: 'Booking is not cancellable or has already started' })
+  async cancel(@Param('id') id: string, @Body() dto: CancelBookingDto, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.cancel(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
   }
 
   @Get(':id')
