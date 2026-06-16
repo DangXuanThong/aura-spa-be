@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { User } from 'src/modules/user/entities/user.entity';
+import { StaffPosition } from '../enums/staff-position.enum';
 import { StaffStatus } from '../enums/staff-status.enum';
 
 @Entity('branch_staff')
@@ -29,8 +30,13 @@ export class BranchStaff {
   @Column({ name: 'staff_code', type: 'varchar', length: 50, nullable: true })
   staffCode!: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: false })
-  position!: string; // 'technician' | 'receptionist' | 'manager'
+  @Column({
+    type: 'enum',
+    enum: StaffPosition,
+    enumName: 'staff_position',
+    nullable: false,
+  })
+  position!: StaffPosition;
 
   @Column({
     type: 'enum',
