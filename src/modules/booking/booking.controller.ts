@@ -20,6 +20,7 @@ import { BookingService } from './booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -89,6 +90,22 @@ export class BookingController {
   @ApiConflictResponse({ description: 'The requested time slot is fully booked' })
   async reschedule(@Param('id') id: string, @Body() dto: RescheduleBookingDto, @Request() req: any): Promise<BookingResponseDto> {
     const newBooking = await this.bookingService.reschedule(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...newBooking, services: [] });
+  }
+
+  // ── Customer: transfer routes (UC13 — Transfer Appointment to Another Branch) ──
+
+  @Patch(':id/transfer')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Appointment transferred — returns the new booking at the destination branch', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required or booking does not belong to the caller' })
+  @ApiBadRequestResponse({ description: 'Booking is not confirmed, start time is in the past, or same branch selected' })
+  @ApiConflictResponse({ description: 'The requested slot at the target branch is fully booked' })
+  async transfer(@Param('id') id: string, @Body() dto: TransferBookingDto, @Request() req: any): Promise<BookingResponseDto> {
+    const newBooking = await this.bookingService.transfer(id, dto, req.user.id);
     return plainToInstance(BookingResponseDto, { ...newBooking, services: [] });
   }
 

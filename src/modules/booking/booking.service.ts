@@ -15,6 +15,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { TransferBookingDto } from './dto/transfer-booking.dto';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -229,6 +230,132 @@ export class BookingService {
         unitPrice: bookingSvc.unitPrice,
         discountAmount: bookingSvc.discountAmount,
         finalAmount: bookingSvc.finalAmount,
+      }),
+    );
+
+    return newBooking;
+  }
+
+  // UC13 — Transfer Appointment to Another Branch
+  async transfer(id: string, dto: TransferBookingDto, customerId: string): Promise<Booking> {
+    // 1. Find booking and verify ownership
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
+
+    // 2. Only confirmed bookings can be transferred
+    if (booking.status !== BookingStatus.Confirmed) {
+      throw new BadRequestException('Only confirmed bookings can be transferred');
+    }
+
+    // 3. New start time must be in the future
+    const newStartTime = new Date(dto.startTime);
+    if (newStartTime <= new Date()) {
+      throw new BadRequestException('New start time must be in the future');
+    }
+
+    // 4. Target branch must differ from current branch
+    if (dto.targetBranchId === booking.branchId) {
+      throw new BadRequestException('Target branch must be different from the current branch');
+    }
+
+    // 5. Verify target branch is active
+    const targetBranch = await this.branchRepo.findOne({ where: { id: dto.targetBranchId } });
+    if (!targetBranch || targetBranch.status !== BranchStatus.Active) {
+      throw new NotFoundException(`Branch ${dto.targetBranchId} not found or inactive`);
+    }
+
+    // 6. Fetch original booking-service to get the serviceId being transferred
+    const bookingSvc = await this.bookingServiceRepo.findOne({ where: { bookingId: id } });
+    if (!bookingSvc) throw new NotFoundException('Booking service record not found');
+
+    // 7. Verify service is available at target branch and resolve new price/duration
+    const targetBranchSvc = await this.branchServiceRepo.findOne({
+      where: { branchId: dto.targetBranchId, serviceId: bookingSvc.serviceId, isEnabled: true },
+      relations: ['service'],
+    });
+    if (!targetBranchSvc) {
+      throw new NotFoundException(`Service is not available at the target branch ${dto.targetBranchId}`);
+    }
+
+    const newDuration = targetBranchSvc.durationMinutesOverride ?? targetBranchSvc.service!.defaultDurationMinutes;
+    const newUnitPrice = parseFloat((targetBranchSvc.priceOverride ?? targetBranchSvc.service!.defaultPrice) as unknown as string);
+    const newEndTime = new Date(newStartTime.getTime() + newDuration * 60 * 1000);
+
+    // 8. Validate technician at target branch if provided
+    if (dto.technicianId) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { branchId: dto.targetBranchId, userId: dto.technicianId, status: StaffStatus.Active },
+      });
+      if (!assignment) {
+        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.targetBranchId}`);
+      }
+    }
+
+    // 9. Find slot config at target branch for the new date
+    const targetDate = newStartTime.toISOString().slice(0, 10);
+    const dayOfWeek = newStartTime.getDay();
+    const slotConfig = await this.slotConfigRepo
+      .createQueryBuilder('sc')
+      .where('sc.branchId = :branchId', { branchId: dto.targetBranchId })
+      .andWhere('sc.dayOfWeek = :dayOfWeek', { dayOfWeek })
+      .andWhere('sc.effectiveFrom <= :date', { date: targetDate })
+      .andWhere('(sc.effectiveTo IS NULL OR sc.effectiveTo >= :date)', { date: targetDate })
+      .getOne();
+    const maxBookings = slotConfig?.maxBookings ?? 1;
+
+    // 10. Check slot availability at the target branch and new time
+    const overlapping = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId: dto.targetBranchId })
+      .andWhere('b.startTime < :endTime', { endTime: newEndTime })
+      .andWhere('b.endTime > :startTime', { startTime: newStartTime })
+      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+      .getCount();
+
+    if (overlapping >= maxBookings) {
+      throw new ConflictException('The selected time slot is not available at the target branch. Please choose a different time.');
+    }
+
+    // 11. Mark old booking as Transferred
+    await this.bookingRepo.update(id, { status: BookingStatus.Transferred });
+
+    // 12. Create new booking at target branch; carry over paid amount, recalculate remaining
+    const paidAmount = parseFloat(booking.paidAmount as unknown as string);
+    const discountAmount = parseFloat(booking.discountAmount as unknown as string);
+    const newRemainingAmount = Math.max(0, newUnitPrice - discountAmount - paidAmount);
+
+    const newBooking = await this.bookingRepo.save(
+      this.bookingRepo.create({
+        customerId,
+        branchId: dto.targetBranchId,
+        technicianId: dto.technicianId ?? null,
+        discountCodeId: booking.discountCodeId,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        status: BookingStatus.Confirmed,
+        source: booking.source,
+        subtotalAmount: newUnitPrice,
+        discountAmount,
+        depositRequiredAmount: booking.depositRequiredAmount,
+        paidAmount,
+        remainingAmount: newRemainingAmount,
+        notes: booking.notes,
+        transferredFromBranchId: booking.branchId,
+        createdBy: customerId,
+      }),
+    );
+
+    // 13. Clone booking-service record with target branch pricing
+    await this.bookingServiceRepo.save(
+      this.bookingServiceRepo.create({
+        bookingId: newBooking.id,
+        serviceId: bookingSvc.serviceId,
+        quantity: bookingSvc.quantity,
+        durationMinutes: newDuration,
+        unitPrice: newUnitPrice,
+        discountAmount: bookingSvc.discountAmount,
+        finalAmount: newUnitPrice - parseFloat(bookingSvc.discountAmount as unknown as string),
       }),
     );
 
