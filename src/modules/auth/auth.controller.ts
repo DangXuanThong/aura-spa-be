@@ -6,13 +6,17 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendOtpDto } from './dto/resend-otp.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import {
+  ForgotPasswordResponseDto,
   GetProfileResponseDto,
   LoginResponseData,
   LoginResponseDto,
   LogoutResponseDto,
   RegisterResponseDto,
   ResendOtpResponseDto,
+  ResetPasswordResponseDto,
   UserProfileDto,
   VerifyEmailResponseDto,
 } from './dto/auth-response.dto';
@@ -98,5 +102,21 @@ export class AuthController {
   async resendOtp(@Body() dto: ResendOtpDto): Promise<ApiResponse<{ message: string }>> {
     await this.authService.resendOtp(dto.email);
     return buildSuccessResponse({ message: 'OTP sent' });
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ForgotPasswordResponseDto })
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ApiResponse<{ message: string }>> {
+    await this.authService.forgotPassword(dto.email);
+    return buildSuccessResponse({ message: 'If the email is registered, an OTP has been sent' });
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: ResetPasswordResponseDto })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<ApiResponse<{ message: string }>> {
+    await this.authService.resetPassword(dto.email, dto.otp, dto.newPassword);
+    return buildSuccessResponse({ message: 'Password reset successfully' });
   }
 }
