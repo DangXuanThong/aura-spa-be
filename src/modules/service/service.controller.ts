@@ -53,7 +53,7 @@ export class ServiceController {
     return this.serviceService.remove(id);
   }
 
-  // ── Public: read-only routes ─────────────────────────────────────────────
+  // ── Public: read-only routes (UC06 — Guest View Service Catalogue) ────────
 
   @Get()
   @ApiOkResponse({ description: 'List of services', type: [ServiceResponseDto] })
