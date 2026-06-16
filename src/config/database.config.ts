@@ -37,7 +37,7 @@ export function buildDataSourceOptions(): DataSourceOptions {
     password: env.password,
     database: env.database,
     entities: ['dist/**/*.entity.js'],
-    migrations: ['dist/database/migrations/*.js'],
+    migrations: ['src/database/migrations/*.ts'],
     synchronize: false, // AURA SPA chỉ đổi schema bằng migration để BE Lead review được.
     migrationsRun: false, // Chạy migration thủ công để tránh app tự sửa DB lúc deploy.
     logging: process.env.NODE_ENV !== 'production',
