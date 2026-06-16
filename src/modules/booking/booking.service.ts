@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
@@ -13,6 +13,7 @@ import { BranchStatus } from 'src/modules/branch/enums/branch-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -128,6 +129,109 @@ export class BookingService {
     );
 
     return booking;
+  }
+
+  // UC11 — Reschedule Appointment
+  async reschedule(id: string, dto: RescheduleBookingDto, customerId: string): Promise<Booking> {
+    // 1. Find booking and verify ownership
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
+
+    // 2. Only upcoming bookings can be rescheduled
+    const reschedulableStatuses = [BookingStatus.PendingPayment, BookingStatus.Confirmed];
+    if (!reschedulableStatuses.includes(booking.status)) {
+      throw new BadRequestException('Only upcoming bookings with status pending_payment or confirmed can be rescheduled');
+    }
+
+    // 3. New start time must be in the future
+    const newStartTime = new Date(dto.startTime);
+    if (newStartTime <= new Date()) {
+      throw new BadRequestException('New start time must be in the future');
+    }
+
+    // 4. Fetch booking-service record to carry over duration and pricing
+    const bookingSvc = await this.bookingServiceRepo.findOne({ where: { bookingId: id } });
+    if (!bookingSvc) throw new NotFoundException('Booking service record not found');
+
+    const newEndTime = new Date(newStartTime.getTime() + bookingSvc.durationMinutes * 60 * 1000);
+
+    // 5. Validate new technician if provided (must be active staff at same branch)
+    const newTechnicianId = dto.technicianId !== undefined ? dto.technicianId : booking.technicianId;
+    if (dto.technicianId) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { branchId: booking.branchId, userId: dto.technicianId, status: StaffStatus.Active },
+      });
+      if (!assignment) {
+        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${booking.branchId}`);
+      }
+    }
+
+    // 6. Find slot config for the new date
+    const targetDate = newStartTime.toISOString().slice(0, 10);
+    const dayOfWeek = newStartTime.getDay();
+    const slotConfig = await this.slotConfigRepo
+      .createQueryBuilder('sc')
+      .where('sc.branchId = :branchId', { branchId: booking.branchId })
+      .andWhere('sc.dayOfWeek = :dayOfWeek', { dayOfWeek })
+      .andWhere('sc.effectiveFrom <= :date', { date: targetDate })
+      .andWhere('(sc.effectiveTo IS NULL OR sc.effectiveTo >= :date)', { date: targetDate })
+      .getOne();
+    const maxBookings = slotConfig?.maxBookings ?? 1;
+
+    // 7. Check slot availability at the new time, excluding the booking being rescheduled
+    const overlapping = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId: booking.branchId })
+      .andWhere('b.startTime < :endTime', { endTime: newEndTime })
+      .andWhere('b.endTime > :startTime', { startTime: newStartTime })
+      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+      .andWhere('b.id != :id', { id })
+      .getCount();
+
+    if (overlapping >= maxBookings) {
+      throw new ConflictException('The selected time slot is not available. Please choose a different time.');
+    }
+
+    // 8. Mark old booking as Rescheduled
+    await this.bookingRepo.update(id, { status: BookingStatus.Rescheduled });
+
+    // 9. Create new booking carrying over all financial state
+    const newBooking = await this.bookingRepo.save(
+      this.bookingRepo.create({
+        customerId,
+        branchId: booking.branchId,
+        technicianId: newTechnicianId,
+        discountCodeId: booking.discountCodeId,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        status: BookingStatus.Confirmed,
+        source: booking.source,
+        subtotalAmount: booking.subtotalAmount,
+        discountAmount: booking.discountAmount,
+        depositRequiredAmount: booking.depositRequiredAmount,
+        paidAmount: booking.paidAmount,
+        remainingAmount: booking.remainingAmount,
+        notes: booking.notes,
+        rescheduledFromBookingId: id,
+        createdBy: customerId,
+      }),
+    );
+
+    // 10. Clone booking-service record for the new booking
+    await this.bookingServiceRepo.save(
+      this.bookingServiceRepo.create({
+        bookingId: newBooking.id,
+        serviceId: bookingSvc.serviceId,
+        quantity: bookingSvc.quantity,
+        durationMinutes: bookingSvc.durationMinutes,
+        unitPrice: bookingSvc.unitPrice,
+        discountAmount: bookingSvc.discountAmount,
+        finalAmount: bookingSvc.finalAmount,
+      }),
+    );
+
+    return newBooking;
   }
 
   async findMyBookings(customerId: string): Promise<Booking[]> {

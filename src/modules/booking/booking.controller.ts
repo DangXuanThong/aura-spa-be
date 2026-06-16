@@ -1,5 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -8,6 +18,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { BookingAvailabilityService } from './booking-availability.service';
 import { BookingService } from './booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -62,6 +73,22 @@ export class BookingController {
       BookingResponseDto,
       bookings.map((b) => ({ ...b, services: [] })),
     );
+  }
+
+  // ── Customer: reschedule routes (UC11 — Reschedule Appointment) ────────────
+
+  @Patch(':id/reschedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Appointment rescheduled — returns the new booking', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required or booking does not belong to the caller' })
+  @ApiBadRequestResponse({ description: 'Booking is not in a reschedulable status, or new start time is in the past' })
+  @ApiConflictResponse({ description: 'The requested time slot is fully booked' })
+  async reschedule(@Param('id') id: string, @Body() dto: RescheduleBookingDto, @Request() req: any): Promise<BookingResponseDto> {
+    const newBooking = await this.bookingService.reschedule(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...newBooking, services: [] });
   }
 
   @Get(':id')
