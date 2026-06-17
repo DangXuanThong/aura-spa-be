@@ -4,7 +4,9 @@ import { BranchStatus } from 'src/modules/branch/enums/branch-status.enum';
 import { ServiceStatus } from 'src/modules/service/enums/service-status.enum';
 import { InventoryItemStatus } from 'src/modules/inventory/enums/inventory-item-status.enum';
 import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
+import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
 import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
+import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -265,6 +267,13 @@ export const INVENTORY_ITEMS = [
 
 const daysFromNow = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
+// slotAt: date N days from now at a specific Vietnam local hour (UTC+7)
+const slotAt = (days: number, hourVN: number): Date => {
+  const d = daysFromNow(days);
+  d.setUTCHours(hourVN - 7, 0, 0, 0);
+  return d;
+};
+
 export const PROMOTIONS = [
   {
     code: 'WELCOME-ACTIVE',
@@ -312,6 +321,124 @@ export const PROMOTIONS = [
     status: PromotionStatus.Draft,
   },
 ];
+
+// ── Discount codes (UC14) ─────────────────────────────────────────────────────
+
+export const DISCOUNT_CODES = [
+  {
+    promotionCode: 'WELCOME-ACTIVE',
+    code: 'WELCOME2026',
+    usageLimitTotal: 500,
+    usageLimitPerCustomer: 2,
+    status: DiscountCodeStatus.Active,
+  },
+  {
+    promotionCode: 'HCM-Q1-WELCOME',
+    code: 'Q1FIRST',
+    usageLimitTotal: 100,
+    usageLimitPerCustomer: 1,
+    status: DiscountCodeStatus.Active,
+  },
+];
+
+// ── Upcoming bookings (UC10) ──────────────────────────────────────────────────
+// Future confirmed bookings — relative dates so they are always upcoming.
+
+export const UPCOMING_BOOKINGS = [
+  {
+    customerEmail: 'lan.nguyen@gmail.com',
+    branchCode: 'HCM-Q1',
+    technicianEmail: 'thu.vo@aura-spa.com',
+    serviceCode: 'SVC-FACIAL-001',
+    startTime: slotAt(3, 10),
+    durationMinutes: 60,
+    price: 350000,
+  },
+  {
+    customerEmail: 'bao.pham@gmail.com',
+    branchCode: 'HCM-Q7',
+    technicianEmail: 'duc.nguyen@aura-spa.com',
+    serviceCode: 'SVC-BODY-001',
+    startTime: slotAt(5, 14),
+    durationMinutes: 90,
+    price: 500000,
+  },
+  {
+    customerEmail: 'mai.hoang@gmail.com',
+    branchCode: 'HAN-HK',
+    technicianEmail: 'bich.tran@aura-spa.com',
+    serviceCode: 'SVC-NAIL-001',
+    startTime: slotAt(7, 9),
+    durationMinutes: 45,
+    price: 200000,
+  },
+];
+
+// ── Rescheduled pair (UC11) ───────────────────────────────────────────────────
+
+export const RESCHEDULED_PAIR = {
+  original: {
+    customerEmail: 'hoa.le@gmail.com',
+    branchCode: 'HAN-HK',
+    technicianEmail: 'bich.tran@aura-spa.com',
+    serviceCode: 'SVC-NAIL-001',
+    startTime: slotAt(-3, 11),
+    durationMinutes: 45,
+    price: 200000,
+    status: BookingStatus.Rescheduled,
+  },
+  rescheduled: {
+    customerEmail: 'hoa.le@gmail.com',
+    branchCode: 'HAN-HK',
+    technicianEmail: 'bich.tran@aura-spa.com',
+    serviceCode: 'SVC-NAIL-001',
+    startTime: slotAt(4, 11),
+    durationMinutes: 45,
+    price: 200000,
+    status: BookingStatus.Confirmed,
+  },
+};
+
+// ── Cancelled booking (UC12) ──────────────────────────────────────────────────
+
+export const CANCELLED_BOOKING = {
+  customerEmail: 'minh.tran@gmail.com',
+  branchCode: 'HCM-Q7',
+  technicianEmail: null as string | null,
+  serviceCode: 'SVC-FACIAL-002',
+  startTime: slotAt(10, 14),
+  durationMinutes: 90,
+  price: 650000,
+  status: BookingStatus.Cancelled,
+  cancelReason: 'Thay đổi kế hoạch, sẽ đặt lại sau',
+  cancelledAt: daysFromNow(-1),
+};
+
+// ── Transferred pair (UC13) ───────────────────────────────────────────────────
+
+export const TRANSFERRED_PAIR = {
+  original: {
+    customerEmail: 'mai.hoang@gmail.com',
+    branchCode: 'HCM-Q1',
+    technicianEmail: 'thu.vo@aura-spa.com',
+    serviceCode: 'SVC-FACIAL-001',
+    startTime: slotAt(14, 10),
+    durationMinutes: 60,
+    price: 350000,
+    status: BookingStatus.Transferred,
+  },
+  transferred: {
+    customerEmail: 'mai.hoang@gmail.com',
+    branchCode: 'HCM-Q7',
+    technicianEmail: 'duc.nguyen@aura-spa.com',
+    serviceCode: 'SVC-FACIAL-001',
+    startTime: slotAt(14, 15),
+    durationMinutes: 60,
+    price: 350000,
+    status: BookingStatus.Confirmed,
+    transferredFromBranchCode: 'HCM-Q1',
+  },
+};
 
 // ── Conversations (UC08) ──────────────────────────────────────────────────────
 

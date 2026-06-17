@@ -17,6 +17,7 @@ import { HealthRecord } from 'src/modules/health/entities/health-record.entity';
 import { InventoryItem } from 'src/modules/inventory/entities/inventory-item.entity';
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
+import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Conversation } from 'src/modules/communication/entities/conversation.entity';
 import { Message } from 'src/modules/communication/entities/message.entity';
 import { SeederService } from './seeder.service';
@@ -27,6 +28,7 @@ import { ReviewSeeder } from './review.seeder';
 import { HealthSeeder } from './health.seeder';
 import { InventorySeeder } from './inventory.seeder';
 import { PromotionSeeder } from './promotion.seeder';
+import { DiscountCodeSeeder } from './discount-code.seeder';
 import { ConversationSeeder } from './conversation.seeder';
 
 @Module({
@@ -49,6 +51,7 @@ import { ConversationSeeder } from './conversation.seeder';
       InventoryItem,
       BranchInventory,
       Promotion,
+      DiscountCode,
       Conversation,
       Message,
     ]),
@@ -62,6 +65,7 @@ import { ConversationSeeder } from './conversation.seeder';
     HealthSeeder,
     InventorySeeder,
     PromotionSeeder,
+    DiscountCodeSeeder,
     ConversationSeeder,
   ],
 })
