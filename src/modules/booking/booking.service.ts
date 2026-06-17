@@ -400,6 +400,34 @@ export class BookingService {
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
 
+  // UC18 — Check In Customer
+  async checkIn(id: string, staffId: string): Promise<Booking> {
+    // 1. Find booking
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    // 2. Only confirmed bookings can be checked in
+    if (booking.status !== BookingStatus.Confirmed) {
+      throw new BadRequestException('Only confirmed bookings can be checked in');
+    }
+
+    // 3. Staff must be active at the booking branch
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new ForbiddenException('You are not an active staff member at this branch');
+    }
+
+    // 4. Mark as checked in
+    await this.bookingRepo.update(id, {
+      status: BookingStatus.CheckedIn,
+      checkedInAt: new Date(),
+    });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+
   // UC14 — Apply Discount Code
   async applyDiscount(id: string, dto: ApplyDiscountDto, customerId: string): Promise<Booking> {
     // 1. Find booking and verify ownership

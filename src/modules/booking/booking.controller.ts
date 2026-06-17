@@ -138,6 +138,21 @@ export class BookingController {
     return plainToInstance(BookingResponseDto, { ...booking, services: [] });
   }
 
+  // ── Staff: check-in (UC18 — Check In Customer) ──────────────────────────
+
+  @Patch(':id/check-in')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Customer checked in — booking status updated to checked_in', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or caller is not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Booking is not in Confirmed status' })
+  async checkIn(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.checkIn(id, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
