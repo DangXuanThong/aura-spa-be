@@ -26,13 +26,17 @@ export class BranchService {
     return this.branchRepository.save(branch);
   }
 
-  async findAll(status?: BranchStatus): Promise<Branch[]> {
+  async findAll(status?: BranchStatus, search?: string): Promise<Branch[]> {
     const query = this.branchRepository.createQueryBuilder('branch');
 
     if (status) {
       query.where('branch.status = :status', { status });
     } else {
       query.where('branch.status = :status', { status: BranchStatus.Active });
+    }
+
+    if (search) {
+      query.andWhere('branch.name ILIKE :search', { search: `%${search}%` });
     }
 
     return query.orderBy('branch.name', 'ASC').getMany();
@@ -63,10 +67,7 @@ export class BranchService {
 
     if ((updateBranchDto as any).code || (updateBranchDto as any).name) {
       const existingBranches = await this.branchRepository.find({
-        where: [
-          { code: (updateBranchDto as any).code || branch.code },
-          { name: (updateBranchDto as any).name || branch.name },
-        ],
+        where: [{ code: (updateBranchDto as any).code || branch.code }, { name: (updateBranchDto as any).name || branch.name }],
       });
 
       const otherBranch = existingBranches.find((b: Branch) => b.id !== id);
