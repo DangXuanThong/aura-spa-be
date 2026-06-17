@@ -8,7 +8,15 @@ import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { BookingSource } from 'src/modules/booking/enums/booking-source.enum';
-import { DEMO_BOOKINGS, UPCOMING_BOOKINGS, RESCHEDULED_PAIR, CANCELLED_BOOKING, TRANSFERRED_PAIR } from './seed-data';
+import {
+  DEMO_BOOKINGS,
+  UPCOMING_BOOKINGS,
+  RESCHEDULED_PAIR,
+  CANCELLED_BOOKING,
+  TRANSFERRED_PAIR,
+  CHECKED_IN_BOOKING,
+  WALK_IN_BOOKING,
+} from './seed-data';
 
 const ALL_EMAILS = [
   'lan.nguyen@gmail.com',
@@ -245,6 +253,67 @@ export class BookingSeeder {
         }),
       );
       await this.saveBookingService(tNewBooking.id, tService.id, tNew.durationMinutes, tNew.price);
+      seeded++;
+    }
+
+    // ── Checked-in booking (UC18) ──────────────────────────────────────────
+    const ciDef = CHECKED_IN_BOOKING;
+    const ciCustomer = userMap.get(ciDef.customerEmail);
+    const ciBranch = branchMap.get(ciDef.branchCode);
+    const ciTech = userMap.get(ciDef.technicianEmail);
+    const ciService = serviceMap.get(ciDef.serviceCode);
+    if (ciCustomer && ciBranch && ciTech && ciService) {
+      const ciEnd = new Date(ciDef.startTime.getTime() + ciDef.durationMinutes * 60 * 1000);
+      const ciBooking = await this.bookingRepo.save(
+        this.bookingRepo.create({
+          customerId: ciCustomer.id,
+          branchId: ciBranch.id,
+          technicianId: ciTech.id,
+          startTime: ciDef.startTime,
+          endTime: ciEnd,
+          status: ciDef.status,
+          source: ciDef.source,
+          subtotalAmount: ciDef.price,
+          discountAmount: 0,
+          depositRequiredAmount: 0,
+          paidAmount: 0,
+          remainingAmount: ciDef.price,
+          createdBy: ciCustomer.id,
+          checkedInAt: ciDef.checkedInAt,
+        }),
+      );
+      await this.saveBookingService(ciBooking.id, ciService.id, ciDef.durationMinutes, ciDef.price);
+      seeded++;
+    }
+
+    // ── Walk-in booking (UC19) ─────────────────────────────────────────────
+    const wiDef = WALK_IN_BOOKING;
+    const wiCustomer = userMap.get(wiDef.customerEmail);
+    const wiBranch = branchMap.get(wiDef.branchCode);
+    const wiTech = userMap.get(wiDef.technicianEmail);
+    const wiService = serviceMap.get(wiDef.serviceCode);
+    if (wiCustomer && wiBranch && wiTech && wiService) {
+      const wiEnd = new Date(wiDef.startTime.getTime() + wiDef.durationMinutes * 60 * 1000);
+      const wiBooking = await this.bookingRepo.save(
+        this.bookingRepo.create({
+          customerId: wiCustomer.id,
+          branchId: wiBranch.id,
+          technicianId: wiTech.id,
+          startTime: wiDef.startTime,
+          endTime: wiEnd,
+          status: wiDef.status,
+          source: wiDef.source,
+          subtotalAmount: wiDef.price,
+          discountAmount: 0,
+          depositRequiredAmount: 0,
+          paidAmount: wiDef.price,
+          remainingAmount: 0,
+          createdBy: wiTech.id,
+          checkedInAt: wiDef.checkedInAt,
+          completedAt: wiDef.completedAt,
+        }),
+      );
+      await this.saveBookingService(wiBooking.id, wiService.id, wiDef.durationMinutes, wiDef.price);
       seeded++;
     }
 

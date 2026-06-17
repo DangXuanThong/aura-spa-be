@@ -7,8 +7,11 @@ import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
 import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
+import { BookingSource } from 'src/modules/booking/enums/booking-source.enum';
 import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
+import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
+import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -482,6 +485,92 @@ export const DEMO_CONVERSATIONS = [
         'Chào bạn! Để đặt lịch, bạn đăng ký tài khoản trên ứng dụng và chọn dịch vụ, chi nhánh, khung giờ phù hợp. ' +
         'Về thanh toán, spa chấp nhận tiền mặt, chuyển khoản và thẻ tín dụng/ghi nợ. Bạn cần hỗ trợ thêm gì không ạ?',
     },
+  },
+];
+
+// ── Checked-in booking (UC18) ─────────────────────────────────────────────────
+
+export const CHECKED_IN_BOOKING = {
+  customerEmail: 'minh.tran@gmail.com',
+  branchCode: 'HCM-Q1',
+  technicianEmail: 'thu.vo@aura-spa.com',
+  serviceCode: 'SVC-FACIAL-001',
+  startTime: slotAt(0, 9),
+  durationMinutes: 60,
+  price: 350000,
+  status: BookingStatus.CheckedIn,
+  source: BookingSource.Online,
+  checkedInAt: slotAt(0, 9),
+};
+
+// ── Walk-in booking (UC19) ────────────────────────────────────────────────────
+
+export const WALK_IN_BOOKING = {
+  customerEmail: 'bao.pham@gmail.com',
+  branchCode: 'HCM-Q1',
+  technicianEmail: 'thu.vo@aura-spa.com',
+  serviceCode: 'SVC-NAIL-001',
+  startTime: slotAt(0, 10),
+  durationMinutes: 45,
+  price: 200000,
+  status: BookingStatus.Completed,
+  source: BookingSource.WalkIn,
+  checkedInAt: slotAt(0, 10),
+  completedAt: new Date(slotAt(0, 10).getTime() + 45 * 60 * 1000),
+};
+
+// ── Staff schedules (UC21 / UC22) ─────────────────────────────────────────────
+
+export const SCHEDULE_DEFS = [
+  {
+    staffEmail: 'thu.vo@aura-spa.com',
+    branchCode: 'HCM-Q1',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
+  {
+    staffEmail: 'duc.nguyen@aura-spa.com',
+    branchCode: 'HCM-Q7',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
+  {
+    staffEmail: 'bich.tran@aura-spa.com',
+    branchCode: 'HAN-HK',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+      {
+        requestType: ScheduleRequestType.DayOff,
+        requestedStart: slotAt(8, 8),
+        requestedEnd: slotAt(9, 18),
+        status: ApprovalStatus.Pending,
+        reason: 'Xin nghỉ cuối tuần tới',
+        shiftDays: [],
+      },
+    ],
   },
 ];
 

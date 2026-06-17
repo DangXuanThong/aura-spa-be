@@ -7,6 +7,9 @@ import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
+import { ScheduleType } from 'src/modules/schedule/enums/schedule-type.enum';
+import { ScheduleStatus } from 'src/modules/schedule/enums/schedule-status.enum';
 import { BookingStatus } from './enums/booking-status.enum';
 import { BookingSource } from './enums/booking-source.enum';
 import { BranchStatus } from 'src/modules/branch/enums/branch-status.enum';
@@ -17,6 +20,7 @@ import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
+import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
@@ -40,6 +44,8 @@ export class BookingService {
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(StaffSchedule)
+    private readonly staffScheduleRepo: Repository<StaffSchedule>,
     @InjectRepository(DiscountCode)
     private readonly discountCodeRepo: Repository<DiscountCode>,
     @InjectRepository(Promotion)
@@ -79,6 +85,11 @@ export class BookingService {
     // 4. Compute start/end times
     const startTime = new Date(dto.startTime);
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    // 4a. Verify technician has an approved working shift covering this slot
+    if (dto.technicianId) {
+      await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+    }
 
     // 5. Find slot config to check capacity
     const targetDate = startTime.toISOString().slice(0, 10); // YYYY-MM-DD UTC
@@ -177,6 +188,7 @@ export class BookingService {
       if (!assignment) {
         throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${booking.branchId}`);
       }
+      await this.assertTechnicianScheduled(dto.technicianId, booking.branchId, newStartTime, newEndTime);
     }
 
     // 6. Find slot config for the new date
@@ -300,6 +312,7 @@ export class BookingService {
       if (!assignment) {
         throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.targetBranchId}`);
       }
+      await this.assertTechnicianScheduled(dto.technicianId, dto.targetBranchId, newStartTime, newEndTime);
     }
 
     // 9. Find slot config at target branch for the new date
@@ -398,6 +411,148 @@ export class BookingService {
     });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+
+  // UC18 — Check In Customer
+  async checkIn(id: string, staffId: string): Promise<Booking> {
+    // 1. Find booking
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    // 2. Only confirmed bookings can be checked in
+    if (booking.status !== BookingStatus.Confirmed) {
+      throw new BadRequestException('Only confirmed bookings can be checked in');
+    }
+
+    // 3. Staff must be active at the booking branch
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new ForbiddenException('You are not an active staff member at this branch');
+    }
+
+    // 4. Mark as checked in
+    await this.bookingRepo.update(id, {
+      status: BookingStatus.CheckedIn,
+      checkedInAt: new Date(),
+    });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+
+  // UC19 — Create Walk-in Appointment
+  async createWalkIn(dto: CreateWalkInBookingDto, staffId: string): Promise<Booking> {
+    // 1. Staff must be active at the specified branch
+    const staffAssignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: dto.branchId, status: StaffStatus.Active },
+    });
+    if (!staffAssignment) {
+      throw new ForbiddenException('You are not an active staff member at this branch');
+    }
+
+    // 2. Branch must be active
+    const branch = await this.branchRepo.findOne({ where: { id: dto.branchId } });
+    if (!branch || branch.status !== BranchStatus.Active) {
+      throw new NotFoundException(`Branch ${dto.branchId} not found or inactive`);
+    }
+
+    // 3. Resolve effective price and duration from branch-service
+    const branchSvc = await this.branchServiceRepo.findOne({
+      where: { branchId: dto.branchId, serviceId: dto.serviceId, isEnabled: true },
+      relations: ['service'],
+    });
+    if (!branchSvc) {
+      throw new NotFoundException(`Service ${dto.serviceId} is not available at branch ${dto.branchId}`);
+    }
+
+    const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
+    const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
+
+    // 4. Validate technician (if provided)
+    if (dto.technicianId) {
+      const techAssignment = await this.branchStaffRepo.findOne({
+        where: { branchId: dto.branchId, userId: dto.technicianId, status: StaffStatus.Active },
+      });
+      if (!techAssignment) {
+        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.branchId}`);
+      }
+    }
+
+    // 5. Start time must be today (same-day walk-in)
+    const startTime = new Date(dto.startTime);
+    const nowDate = new Date().toISOString().slice(0, 10);
+    const slotDate = startTime.toISOString().slice(0, 10);
+    if (slotDate !== nowDate) {
+      throw new BadRequestException('Walk-in appointments must be scheduled for today');
+    }
+
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    // 5a. Verify technician has an approved working shift covering this slot
+    if (dto.technicianId) {
+      await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+    }
+
+    // 6. Check slot capacity
+    const dayOfWeek = startTime.getDay();
+    const slotConfig = await this.slotConfigRepo
+      .createQueryBuilder('sc')
+      .where('sc.branchId = :branchId', { branchId: dto.branchId })
+      .andWhere('sc.dayOfWeek = :dayOfWeek', { dayOfWeek })
+      .andWhere('sc.effectiveFrom <= :date', { date: slotDate })
+      .andWhere('(sc.effectiveTo IS NULL OR sc.effectiveTo >= :date)', { date: slotDate })
+      .getOne();
+
+    const maxBookings = slotConfig?.maxBookings ?? 1;
+
+    const overlapping = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId: dto.branchId })
+      .andWhere('b.startTime < :endTime', { endTime })
+      .andWhere('b.endTime > :startTime', { startTime })
+      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+      .getCount();
+
+    if (overlapping >= maxBookings) {
+      throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
+    }
+
+    // 7. Create booking — walk-in starts as CheckedIn since the customer is already present
+    const booking = await this.bookingRepo.save(
+      this.bookingRepo.create({
+        customerId: dto.customerId,
+        branchId: dto.branchId,
+        technicianId: dto.technicianId ?? null,
+        startTime,
+        endTime,
+        status: BookingStatus.CheckedIn,
+        source: BookingSource.WalkIn,
+        subtotalAmount: unitPrice,
+        discountAmount: 0,
+        depositRequiredAmount: 0,
+        paidAmount: 0,
+        remainingAmount: unitPrice,
+        notes: dto.notes ?? null,
+        checkedInAt: new Date(),
+        createdBy: staffId,
+      }),
+    );
+
+    // 8. Create booking-service record
+    await this.bookingServiceRepo.save(
+      this.bookingServiceRepo.create({
+        bookingId: booking.id,
+        serviceId: dto.serviceId,
+        quantity: 1,
+        durationMinutes,
+        unitPrice,
+        discountAmount: 0,
+        finalAmount: unitPrice,
+      }),
+    );
+
+    return booking;
   }
 
   // UC14 — Apply Discount Code
@@ -520,6 +675,21 @@ export class BookingService {
 
     const [withServices] = await this.attachServices([booking]);
     return withServices;
+  }
+
+  private async assertTechnicianScheduled(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<void> {
+    const shift = await this.staffScheduleRepo
+      .createQueryBuilder('ss')
+      .where('ss.staffId = :technicianId', { technicianId })
+      .andWhere('ss.branchId = :branchId', { branchId })
+      .andWhere('ss.scheduleType = :type', { type: ScheduleType.Working })
+      .andWhere('ss.status = :status', { status: ScheduleStatus.Active })
+      .andWhere('ss.startTime <= :start', { start: startTime })
+      .andWhere('ss.endTime >= :end', { end: endTime })
+      .getOne();
+    if (!shift) {
+      throw new BadRequestException('The selected technician is not scheduled to work at this time');
+    }
   }
 
   private async attachServices(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[] })[]> {

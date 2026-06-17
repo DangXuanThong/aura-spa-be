@@ -22,6 +22,7 @@ import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
+import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -135,6 +136,38 @@ export class BookingController {
   @ApiBadRequestResponse({ description: 'Code invalid, expired, usage limit reached, or booking not eligible' })
   async applyDiscount(@Param('id') id: string, @Body() dto: ApplyDiscountDto, @Request() req: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.applyDiscount(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
+  // ── Staff: walk-in booking (UC19 — Create Walk-in Appointment) ─────────
+
+  @Post('walk-in')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ description: 'Walk-in appointment created and checked in', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or caller is not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Start time is not today, or service unavailable at branch' })
+  @ApiConflictResponse({ description: 'The selected time slot is fully booked' })
+  async createWalkIn(@Body() dto: CreateWalkInBookingDto, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.createWalkIn(dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
+  // ── Staff: check-in (UC18 — Check In Customer) ──────────────────────────
+
+  @Patch(':id/check-in')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Customer checked in — booking status updated to checked_in', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or caller is not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Booking is not in Confirmed status' })
+  async checkIn(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.checkIn(id, req.user.id);
     return plainToInstance(BookingResponseDto, { ...booking, services: [] });
   }
 
