@@ -22,8 +22,11 @@ import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course
 import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
 import { Conversation } from 'src/modules/communication/entities/conversation.entity';
 import { Message } from 'src/modules/communication/entities/message.entity';
+import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
 import { SeederService } from './seeder.service';
 import { BranchSetupSeeder } from './branch-setup.seeder';
+import { ScheduleSeeder } from './schedule.seeder';
 import { TreatmentSeeder } from './treatment.seeder';
 import { BookingSeeder } from './booking.seeder';
 import { PaymentSeeder } from './payment.seeder';
@@ -59,6 +62,8 @@ import { ConversationSeeder } from './conversation.seeder';
       TreatmentSession,
       Conversation,
       Message,
+      ScheduleRequest,
+      StaffSchedule,
     ]),
   ],
   providers: [
@@ -73,6 +78,7 @@ import { ConversationSeeder } from './conversation.seeder';
     DiscountCodeSeeder,
     TreatmentSeeder,
     ConversationSeeder,
+    ScheduleSeeder,
   ],
 })
 export class SeederModule {}
