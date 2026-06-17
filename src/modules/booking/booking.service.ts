@@ -17,6 +17,7 @@ import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
+import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
@@ -426,6 +427,115 @@ export class BookingService {
     });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+
+  // UC19 — Create Walk-in Appointment
+  async createWalkIn(dto: CreateWalkInBookingDto, staffId: string): Promise<Booking> {
+    // 1. Staff must be active at the specified branch
+    const staffAssignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: dto.branchId, status: StaffStatus.Active },
+    });
+    if (!staffAssignment) {
+      throw new ForbiddenException('You are not an active staff member at this branch');
+    }
+
+    // 2. Branch must be active
+    const branch = await this.branchRepo.findOne({ where: { id: dto.branchId } });
+    if (!branch || branch.status !== BranchStatus.Active) {
+      throw new NotFoundException(`Branch ${dto.branchId} not found or inactive`);
+    }
+
+    // 3. Resolve effective price and duration from branch-service
+    const branchSvc = await this.branchServiceRepo.findOne({
+      where: { branchId: dto.branchId, serviceId: dto.serviceId, isEnabled: true },
+      relations: ['service'],
+    });
+    if (!branchSvc) {
+      throw new NotFoundException(`Service ${dto.serviceId} is not available at branch ${dto.branchId}`);
+    }
+
+    const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
+    const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
+
+    // 4. Validate technician (if provided)
+    if (dto.technicianId) {
+      const techAssignment = await this.branchStaffRepo.findOne({
+        where: { branchId: dto.branchId, userId: dto.technicianId, status: StaffStatus.Active },
+      });
+      if (!techAssignment) {
+        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.branchId}`);
+      }
+    }
+
+    // 5. Start time must be today (same-day walk-in)
+    const startTime = new Date(dto.startTime);
+    const nowDate = new Date().toISOString().slice(0, 10);
+    const slotDate = startTime.toISOString().slice(0, 10);
+    if (slotDate !== nowDate) {
+      throw new BadRequestException('Walk-in appointments must be scheduled for today');
+    }
+
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    // 6. Check slot capacity
+    const dayOfWeek = startTime.getDay();
+    const slotConfig = await this.slotConfigRepo
+      .createQueryBuilder('sc')
+      .where('sc.branchId = :branchId', { branchId: dto.branchId })
+      .andWhere('sc.dayOfWeek = :dayOfWeek', { dayOfWeek })
+      .andWhere('sc.effectiveFrom <= :date', { date: slotDate })
+      .andWhere('(sc.effectiveTo IS NULL OR sc.effectiveTo >= :date)', { date: slotDate })
+      .getOne();
+
+    const maxBookings = slotConfig?.maxBookings ?? 1;
+
+    const overlapping = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId: dto.branchId })
+      .andWhere('b.startTime < :endTime', { endTime })
+      .andWhere('b.endTime > :startTime', { startTime })
+      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+      .getCount();
+
+    if (overlapping >= maxBookings) {
+      throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
+    }
+
+    // 7. Create booking — walk-in starts as CheckedIn since the customer is already present
+    const booking = await this.bookingRepo.save(
+      this.bookingRepo.create({
+        customerId: dto.customerId,
+        branchId: dto.branchId,
+        technicianId: dto.technicianId ?? null,
+        startTime,
+        endTime,
+        status: BookingStatus.CheckedIn,
+        source: BookingSource.WalkIn,
+        subtotalAmount: unitPrice,
+        discountAmount: 0,
+        depositRequiredAmount: 0,
+        paidAmount: 0,
+        remainingAmount: unitPrice,
+        notes: dto.notes ?? null,
+        checkedInAt: new Date(),
+        createdBy: staffId,
+      }),
+    );
+
+    // 8. Create booking-service record
+    await this.bookingServiceRepo.save(
+      this.bookingServiceRepo.create({
+        bookingId: booking.id,
+        serviceId: dto.serviceId,
+        quantity: 1,
+        durationMinutes,
+        unitPrice,
+        discountAmount: 0,
+        finalAmount: unitPrice,
+      }),
+    );
+
+    return booking;
   }
 
   // UC14 — Apply Discount Code
