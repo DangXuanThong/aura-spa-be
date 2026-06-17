@@ -1,10 +1,11 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -16,6 +17,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ScheduleService } from './schedule.service';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { ScheduleRequestResponseDto } from './dto/schedule-request-response.dto';
+import { TimetableDayDto } from './dto/timetable-day.dto';
 
 @ApiTags('Schedule Requests')
 @Controller('schedule-requests')
@@ -36,6 +38,22 @@ export class ScheduleController {
   async create(@Body() dto: CreateScheduleRequestDto, @Request() req: any): Promise<ScheduleRequestResponseDto> {
     const request = await this.scheduleService.create(dto, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
+  }
+
+  // ── Staff: personal timetable (UC22 — View Personal Schedule) ──────────
+
+  @Get('timetable')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Daily shift timetable with assigned customers for the given date range', type: [TimetableDayDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required' })
+  @ApiBadRequestResponse({ description: 'to is before from' })
+  @ApiQuery({ name: 'from', type: String, required: true, description: 'Start date YYYY-MM-DD (UTC)' })
+  @ApiQuery({ name: 'to', type: String, required: true, description: 'End date YYYY-MM-DD (UTC)' })
+  async getTimetable(@Query('from') from: string, @Query('to') to: string, @Request() req: any): Promise<TimetableDayDto[]> {
+    return this.scheduleService.getMyTimetable(req.user.id, from, to);
   }
 
   // ── Staff: view own requests (UC21 — Register Work Schedule) ────────────
