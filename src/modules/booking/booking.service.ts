@@ -16,6 +16,12 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
+import { ApplyDiscountDto } from './dto/apply-discount.dto';
+import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
+import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
+import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
+import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
+import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -34,6 +40,10 @@ export class BookingService {
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(DiscountCode)
+    private readonly discountCodeRepo: Repository<DiscountCode>,
+    @InjectRepository(Promotion)
+    private readonly promotionRepo: Repository<Promotion>,
   ) {}
 
   // UC10 — Book Appointment
@@ -386,6 +396,106 @@ export class BookingService {
       cancelReason: dto.cancelReason ?? null,
       cancelledAt: new Date(),
     });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+
+  // UC14 — Apply Discount Code
+  async applyDiscount(id: string, dto: ApplyDiscountDto, customerId: string): Promise<Booking> {
+    // 1. Find booking and verify ownership
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
+
+    // 2. Only upcoming bookings can receive a discount
+    const eligibleStatuses = [BookingStatus.PendingPayment, BookingStatus.Confirmed];
+    if (!eligibleStatuses.includes(booking.status)) {
+      throw new BadRequestException('Discount codes can only be applied to upcoming bookings');
+    }
+
+    // 3. Prevent applying a second discount
+    if (booking.discountCodeId) {
+      throw new BadRequestException('A discount code has already been applied to this booking');
+    }
+
+    // 4. Look up discount code with its parent promotion
+    const discountCode = await this.discountCodeRepo.findOne({
+      where: { code: dto.code },
+      relations: ['promotion'],
+    });
+    if (!discountCode) throw new NotFoundException(`Discount code "${dto.code}" not found`);
+
+    const promotion = discountCode.promotion!;
+
+    // 5. Validate discount code status
+    if (discountCode.status !== DiscountCodeStatus.Active) {
+      throw new BadRequestException(`Discount code "${dto.code}" is not active`);
+    }
+
+    // 6. Validate promotion is active and within date range
+    const now = new Date();
+    if (promotion.status !== PromotionStatus.Active || now < promotion.startsAt || now > promotion.endsAt) {
+      throw new BadRequestException(`Promotion associated with code "${dto.code}" is not currently active`);
+    }
+
+    // 7. Validate branch restriction (null = system-wide)
+    if (promotion.branchId && promotion.branchId !== booking.branchId) {
+      throw new BadRequestException('This discount code is not valid at this branch');
+    }
+
+    // 8. Check total usage limit on the discount code
+    if (discountCode.usageLimitTotal !== null && discountCode.usedCount >= discountCode.usageLimitTotal) {
+      throw new BadRequestException(`Discount code "${dto.code}" has reached its usage limit`);
+    }
+
+    // 9. Check total usage limit on the promotion
+    if (promotion.usageLimitTotal !== null && promotion.usedCount >= promotion.usageLimitTotal) {
+      throw new BadRequestException('This promotion has reached its total usage limit');
+    }
+
+    // 10. Check per-customer usage limit
+    if (discountCode.usageLimitPerCustomer !== null) {
+      const customerUses = await this.bookingRepo.count({ where: { customerId, discountCodeId: discountCode.id } });
+      if (customerUses >= discountCode.usageLimitPerCustomer) {
+        throw new BadRequestException('You have already used this discount code the maximum number of times');
+      }
+    }
+
+    // 11. Check minimum order amount
+    const subtotal = parseFloat(booking.subtotalAmount as unknown as string);
+    if (promotion.minOrderAmount !== null) {
+      const minOrder = parseFloat(promotion.minOrderAmount as unknown as string);
+      if (subtotal < minOrder) {
+        throw new BadRequestException(`Order total must be at least ${minOrder} to use this discount code`);
+      }
+    }
+
+    // 12. Calculate discount amount
+    const discountValue = parseFloat(promotion.discountValue as unknown as string);
+    let discountAmount: number;
+    if (promotion.discountType === DiscountType.FixedAmount) {
+      discountAmount = Math.min(discountValue, subtotal);
+    } else {
+      discountAmount = (subtotal * discountValue) / 100;
+      if (promotion.maxDiscountAmount !== null) {
+        discountAmount = Math.min(discountAmount, parseFloat(promotion.maxDiscountAmount as unknown as string));
+      }
+    }
+    discountAmount = Math.round(discountAmount * 100) / 100;
+
+    const paidAmount = parseFloat(booking.paidAmount as unknown as string);
+    const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
+
+    // 13. Update booking with discount
+    await this.bookingRepo.update(id, {
+      discountCodeId: discountCode.id,
+      discountAmount,
+      remainingAmount: newRemainingAmount,
+    });
+
+    // 14. Increment usage counts
+    await this.discountCodeRepo.increment({ id: discountCode.id }, 'usedCount', 1);
+    await this.promotionRepo.increment({ id: promotion.id }, 'usedCount', 1);
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }

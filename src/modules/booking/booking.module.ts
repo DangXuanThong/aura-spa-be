@@ -7,6 +7,8 @@ import { BranchService as BranchServiceEntity } from 'src/modules/branch-service
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
+import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
+import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { BookingController } from './booking.controller';
 import { BookingAvailabilityService } from './booking-availability.service';
 import { BookingService } from './booking.service';
@@ -15,7 +17,17 @@ import { AuthModule } from 'src/modules/auth/auth.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Booking, BookingServiceEntity, BookingSlotConfig, BranchServiceEntity, Branch, BranchStaff, Service]),
+    TypeOrmModule.forFeature([
+      Booking,
+      BookingServiceEntity,
+      BookingSlotConfig,
+      BranchServiceEntity,
+      Branch,
+      BranchStaff,
+      Service,
+      DiscountCode,
+      Promotion,
+    ]),
     AuthModule,
   ],
   controllers: [BookingController],

@@ -21,6 +21,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
+import { ApplyDiscountDto } from './dto/apply-discount.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -121,6 +122,21 @@ export class BookingController {
   @ApiBadRequestResponse({ description: 'Booking is not cancellable or has already started' })
   async cancel(@Param('id') id: string, @Body() dto: CancelBookingDto, @Request() req: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.cancel(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
+  // ── Customer: discount routes (UC14 — Apply Discount Code) ──────────────
+
+  @Patch(':id/apply-discount')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Discount applied — returns the updated booking with recalculated amounts', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required or booking does not belong to the caller' })
+  @ApiBadRequestResponse({ description: 'Code invalid, expired, usage limit reached, or booking not eligible' })
+  async applyDiscount(@Param('id') id: string, @Body() dto: ApplyDiscountDto, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.applyDiscount(id, dto, req.user.id);
     return plainToInstance(BookingResponseDto, { ...booking, services: [] });
   }
 
