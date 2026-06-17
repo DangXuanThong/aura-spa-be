@@ -70,12 +70,10 @@ export class BookingController {
   @ApiOkResponse({ description: 'Bookings for the authenticated customer, ordered by start time descending', type: [BookingResponseDto] })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Customer role required' })
+  // ── Customer: booking history (UC15 — View Booking History) ────────────────
   async findMine(@Request() req: any): Promise<BookingResponseDto[]> {
     const bookings = await this.bookingService.findMyBookings(req.user.id);
-    return plainToInstance(
-      BookingResponseDto,
-      bookings.map((b) => ({ ...b, services: [] })),
-    );
+    return plainToInstance(BookingResponseDto, bookings);
   }
 
   // ── Customer: reschedule routes (UC11 — Reschedule Appointment) ────────────
@@ -147,6 +145,6 @@ export class BookingController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   async findOne(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.findOne(id, req.user.id, req.user.role);
-    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+    return plainToInstance(BookingResponseDto, booking);
   }
 }
