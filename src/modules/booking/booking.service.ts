@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService as BookingServiceEntity } from './entities/booking-service.entity';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
@@ -500,14 +500,16 @@ export class BookingService {
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
 
-  async findMyBookings(customerId: string): Promise<Booking[]> {
-    return this.bookingRepo.find({
+  // UC15 — View Booking History
+  async findMyBookings(customerId: string): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
+    const bookings = await this.bookingRepo.find({
       where: { customerId },
       order: { startTime: 'DESC' },
     });
+    return this.attachServices(bookings);
   }
 
-  async findOne(id: string, requesterId: string, requesterRole: string): Promise<Booking> {
+  async findOne(id: string, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id } });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
@@ -516,6 +518,20 @@ export class BookingService {
       throw new ForbiddenException('You do not have access to this booking');
     }
 
-    return booking;
+    const [withServices] = await this.attachServices([booking]);
+    return withServices;
+  }
+
+  private async attachServices(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
+    if (bookings.length === 0) return [];
+    const ids = bookings.map((b) => b.id);
+    const allServices = await this.bookingServiceRepo.find({ where: { bookingId: In(ids) } });
+    const servicesByBooking = new Map<string, BookingServiceEntity[]>();
+    for (const svc of allServices) {
+      const list = servicesByBooking.get(svc.bookingId) ?? [];
+      list.push(svc);
+      servicesByBooking.set(svc.bookingId, list);
+    }
+    return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
   }
 }
