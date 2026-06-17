@@ -18,10 +18,13 @@ import { InventoryItem } from 'src/modules/inventory/entities/inventory-item.ent
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
+import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
+import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
 import { Conversation } from 'src/modules/communication/entities/conversation.entity';
 import { Message } from 'src/modules/communication/entities/message.entity';
 import { SeederService } from './seeder.service';
 import { BranchSetupSeeder } from './branch-setup.seeder';
+import { TreatmentSeeder } from './treatment.seeder';
 import { BookingSeeder } from './booking.seeder';
 import { PaymentSeeder } from './payment.seeder';
 import { ReviewSeeder } from './review.seeder';
@@ -52,6 +55,8 @@ import { ConversationSeeder } from './conversation.seeder';
       BranchInventory,
       Promotion,
       DiscountCode,
+      TreatmentCourse,
+      TreatmentSession,
       Conversation,
       Message,
     ]),
@@ -66,6 +71,7 @@ import { ConversationSeeder } from './conversation.seeder';
     InventorySeeder,
     PromotionSeeder,
     DiscountCodeSeeder,
+    TreatmentSeeder,
     ConversationSeeder,
   ],
 })

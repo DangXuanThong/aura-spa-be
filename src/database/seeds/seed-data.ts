@@ -7,6 +7,8 @@ import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
 import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
+import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
+import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -480,5 +482,106 @@ export const DEMO_CONVERSATIONS = [
         'Chào bạn! Để đặt lịch, bạn đăng ký tài khoản trên ứng dụng và chọn dịch vụ, chi nhánh, khung giờ phù hợp. ' +
         'Về thanh toán, spa chấp nhận tiền mặt, chuyển khoản và thẻ tín dụng/ghi nợ. Bạn cần hỗ trợ thêm gì không ạ?',
     },
+  },
+];
+
+// ── Treatment courses + sessions (UC16) ───────────────────────────────────────
+
+export const TREATMENT_COURSE_DEFS = [
+  {
+    customerEmail: 'lan.nguyen@gmail.com',
+    branchCode: 'HCM-Q1',
+    serviceCode: 'SVC-FACIAL-002',
+    totalSessions: 5,
+    usedSessions: 2,
+    remainingSessions: 3,
+    status: TreatmentCourseStatus.Active,
+    startedAt: daysFromNow(-20),
+    expiresAt: daysFromNow(160),
+    sessions: [
+      {
+        sessionNumber: 1,
+        status: TreatmentSessionStatus.Completed,
+        technicianEmail: 'thu.vo@aura-spa.com',
+        progressNote: 'Buổi 1: Da phản ứng tốt, giảm mụn viêm rõ rệt sau liệu trình.',
+        completedAt: daysFromNow(-20),
+      },
+      {
+        sessionNumber: 2,
+        status: TreatmentSessionStatus.Completed,
+        technicianEmail: 'thu.vo@aura-spa.com',
+        progressNote: 'Buổi 2: Độ ẩm da tăng đáng kể, lỗ chân lông se khít hơn.',
+        completedAt: daysFromNow(-10),
+      },
+      {
+        sessionNumber: 3,
+        status: TreatmentSessionStatus.Booked,
+        technicianEmail: 'thu.vo@aura-spa.com',
+        progressNote: null,
+        completedAt: null,
+      },
+      {
+        sessionNumber: 4,
+        status: TreatmentSessionStatus.Planned,
+        technicianEmail: null,
+        progressNote: null,
+        completedAt: null,
+      },
+      {
+        sessionNumber: 5,
+        status: TreatmentSessionStatus.Planned,
+        technicianEmail: null,
+        progressNote: null,
+        completedAt: null,
+      },
+    ],
+  },
+  {
+    customerEmail: 'bao.pham@gmail.com',
+    branchCode: 'HCM-Q7',
+    serviceCode: 'SVC-BODY-002',
+    totalSessions: 10,
+    usedSessions: 1,
+    remainingSessions: 9,
+    status: TreatmentCourseStatus.Active,
+    startedAt: daysFromNow(-7),
+    expiresAt: daysFromNow(173),
+    sessions: [
+      {
+        sessionNumber: 1,
+        status: TreatmentSessionStatus.Completed,
+        technicianEmail: 'duc.nguyen@aura-spa.com',
+        progressNote: 'Buổi khởi động: Da đều màu hơn, khách phản hồi tích cực.',
+        completedAt: daysFromNow(-7),
+      },
+      {
+        sessionNumber: 2,
+        status: TreatmentSessionStatus.Booked,
+        technicianEmail: 'duc.nguyen@aura-spa.com',
+        progressNote: null,
+        completedAt: null,
+      },
+      {
+        sessionNumber: 3,
+        status: TreatmentSessionStatus.Planned,
+        technicianEmail: null,
+        progressNote: null,
+        completedAt: null,
+      },
+      {
+        sessionNumber: 4,
+        status: TreatmentSessionStatus.Planned,
+        technicianEmail: null,
+        progressNote: null,
+        completedAt: null,
+      },
+      {
+        sessionNumber: 5,
+        status: TreatmentSessionStatus.Planned,
+        technicianEmail: null,
+        progressNote: null,
+        completedAt: null,
+      },
+    ],
   },
 ];
