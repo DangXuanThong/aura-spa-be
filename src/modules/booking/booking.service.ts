@@ -7,6 +7,9 @@ import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
+import { ScheduleType } from 'src/modules/schedule/enums/schedule-type.enum';
+import { ScheduleStatus } from 'src/modules/schedule/enums/schedule-status.enum';
 import { BookingStatus } from './enums/booking-status.enum';
 import { BookingSource } from './enums/booking-source.enum';
 import { BranchStatus } from 'src/modules/branch/enums/branch-status.enum';
@@ -41,6 +44,8 @@ export class BookingService {
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(StaffSchedule)
+    private readonly staffScheduleRepo: Repository<StaffSchedule>,
     @InjectRepository(DiscountCode)
     private readonly discountCodeRepo: Repository<DiscountCode>,
     @InjectRepository(Promotion)
@@ -80,6 +85,11 @@ export class BookingService {
     // 4. Compute start/end times
     const startTime = new Date(dto.startTime);
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    // 4a. Verify technician has an approved working shift covering this slot
+    if (dto.technicianId) {
+      await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+    }
 
     // 5. Find slot config to check capacity
     const targetDate = startTime.toISOString().slice(0, 10); // YYYY-MM-DD UTC
@@ -178,6 +188,7 @@ export class BookingService {
       if (!assignment) {
         throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${booking.branchId}`);
       }
+      await this.assertTechnicianScheduled(dto.technicianId, booking.branchId, newStartTime, newEndTime);
     }
 
     // 6. Find slot config for the new date
@@ -301,6 +312,7 @@ export class BookingService {
       if (!assignment) {
         throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.targetBranchId}`);
       }
+      await this.assertTechnicianScheduled(dto.technicianId, dto.targetBranchId, newStartTime, newEndTime);
     }
 
     // 9. Find slot config at target branch for the new date
@@ -476,6 +488,11 @@ export class BookingService {
     }
 
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+
+    // 5a. Verify technician has an approved working shift covering this slot
+    if (dto.technicianId) {
+      await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+    }
 
     // 6. Check slot capacity
     const dayOfWeek = startTime.getDay();
@@ -658,6 +675,21 @@ export class BookingService {
 
     const [withServices] = await this.attachServices([booking]);
     return withServices;
+  }
+
+  private async assertTechnicianScheduled(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<void> {
+    const shift = await this.staffScheduleRepo
+      .createQueryBuilder('ss')
+      .where('ss.staffId = :technicianId', { technicianId })
+      .andWhere('ss.branchId = :branchId', { branchId })
+      .andWhere('ss.scheduleType = :type', { type: ScheduleType.Working })
+      .andWhere('ss.status = :status', { status: ScheduleStatus.Active })
+      .andWhere('ss.startTime <= :start', { start: startTime })
+      .andWhere('ss.endTime >= :end', { end: endTime })
+      .getOne();
+    if (!shift) {
+      throw new BadRequestException('The selected technician is not scheduled to work at this time');
+    }
   }
 
   private async attachServices(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[] })[]> {

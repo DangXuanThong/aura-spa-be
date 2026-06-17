@@ -6,6 +6,7 @@ import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
 import { Service } from 'src/modules/service/entities/service.entity';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
@@ -24,6 +25,7 @@ import { AuthModule } from 'src/modules/auth/auth.module';
       BranchServiceEntity,
       Branch,
       BranchStaff,
+      StaffSchedule,
       Service,
       DiscountCode,
       Promotion,

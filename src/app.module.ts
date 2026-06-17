@@ -13,6 +13,7 @@ import { BookingModule } from './modules/booking/booking.module';
 import { HealthModule } from './modules/health/health.module';
 import { TreatmentModule } from './modules/treatment/treatment.module';
 import { ReviewModule } from './modules/review/review.module';
+import { WorkScheduleModule } from './modules/schedule/schedule.module';
 import { databaseConfig } from './config/database.config';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { SeederModule } from 'src/database/seeds/seeder.module';
@@ -54,6 +55,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     HealthModule,
     TreatmentModule,
     ReviewModule,
+    WorkScheduleModule,
     SeederModule,
   ],
   providers: [DatabaseHealthLogger],
