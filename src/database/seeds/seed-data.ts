@@ -12,6 +12,7 @@ import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-cou
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
+import { ComplaintStatus } from 'src/modules/communication/enums/complaint-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,15 @@ export const STAFF = [
   { fullName: 'Vo Thi Thu', email: 'thu.vo@aura-spa.com', phone: '0902222001', gender: Gender.Female },
   { fullName: 'Nguyen Van Duc', email: 'duc.nguyen@aura-spa.com', phone: '0902222002', gender: Gender.Male },
   { fullName: 'Tran Thi Bich', email: 'bich.tran@aura-spa.com', phone: '0902222003', gender: Gender.Female },
+  // Second technician at HCM-Q1 (UC28 reassign demo)
+  { fullName: 'Pham Van Long', email: 'long.pham@aura-spa.com', phone: '0902222004', gender: Gender.Male },
+];
+
+// Managers — one per branch, role UserRole.Manager
+export const MANAGERS = [
+  { fullName: 'Nguyen Thi Huong', email: 'huong.manager@aura-spa.com', phone: '0902333001', gender: Gender.Female },
+  { fullName: 'Tran Van Khanh', email: 'khanh.manager@aura-spa.com', phone: '0902333002', gender: Gender.Male },
+  { fullName: 'Le Thi Phuong', email: 'phuong.manager@aura-spa.com', phone: '0902333003', gender: Gender.Female },
 ];
 
 // ── Branches ──────────────────────────────────────────────────────────────────
@@ -144,6 +154,12 @@ export const STAFF_ASSIGNMENTS = [
   { email: 'thu.vo@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-001', position: StaffPosition.Technician },
   { email: 'duc.nguyen@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'STF-HCM-Q7-001', position: StaffPosition.Technician },
   { email: 'bich.tran@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'STF-HAN-HK-001', position: StaffPosition.Technician },
+  // Second technician at HCM-Q1 (UC28 reassign demo)
+  { email: 'long.pham@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-002', position: StaffPosition.Technician },
+  // Managers (UC26–31)
+  { email: 'huong.manager@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'MGR-HCM-Q1-001', position: StaffPosition.Manager },
+  { email: 'khanh.manager@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'MGR-HCM-Q7-001', position: StaffPosition.Manager },
+  { email: 'phuong.manager@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'MGR-HAN-HK-001', position: StaffPosition.Manager },
 ];
 
 // ── Bookings ──────────────────────────────────────────────────────────────────
@@ -572,6 +588,21 @@ export const SCHEDULE_DEFS = [
       },
     ],
   },
+  // Second technician at HCM-Q1 — shifts needed so UC28 reassign passes schedule check
+  {
+    staffEmail: 'long.pham@aura-spa.com',
+    branchCode: 'HCM-Q1',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
 ];
 
 // ── Treatment courses + sessions (UC16) ───────────────────────────────────────
@@ -672,5 +703,47 @@ export const TREATMENT_COURSE_DEFS = [
         completedAt: null,
       },
     ],
+  },
+];
+
+// ── Complaints ────────────────────────────────────────────────────────────────
+
+export const COMPLAINT_DEFS = [
+  {
+    customerEmail: 'minh.tran@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Technician arrived late',
+    description: 'My appointment was at 9:00 AM but the technician only started at 9:30 AM without any notice. This caused me to be late for work.',
+    status: ComplaintStatus.Open,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'lan.nguyen@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Product caused skin irritation',
+    description: 'After the facial treatment, I developed redness and irritation. I believe the product used was not suitable for my skin type.',
+    status: ComplaintStatus.Open,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'bao.pham@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Overcharged for service',
+    description: 'I was charged 500,000 VND but the price listed on the menu was 350,000 VND. Please investigate.',
+    status: ComplaintStatus.InProgress,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'hoa.le@gmail.com',
+    branchCode: 'HCM-Q7',
+    title: 'Dirty towels used during treatment',
+    description: 'The towels used during my massage session did not appear to be freshly laundered.',
+    status: ComplaintStatus.Resolved,
+    resolutionNote:
+      'We sincerely apologize. We have reviewed our linen management process and provided additional training to our housekeeping staff.',
+    resolvedAt: new Date(),
   },
 ];

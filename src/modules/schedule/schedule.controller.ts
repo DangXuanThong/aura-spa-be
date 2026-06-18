@@ -4,6 +4,7 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiQuery,
   ApiTags,
@@ -15,8 +16,10 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ScheduleService } from './schedule.service';
+import { ApprovalStatus } from './enums/approval-status.enum';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { ScheduleRequestResponseDto } from './dto/schedule-request-response.dto';
+import { ScheduleRequestManagerResponseDto } from './dto/schedule-request-manager-response.dto';
 import { TimetableDayDto } from './dto/timetable-day.dto';
 
 @ApiTags('Schedule Requests')
@@ -68,6 +71,57 @@ export class ScheduleController {
   async findMine(@Request() req: any): Promise<ScheduleRequestResponseDto[]> {
     const requests = await this.scheduleService.findMine(req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, requests);
+  }
+
+  // ── Manager: list branch requests (UC26 — Assign Shifts) ────────────────
+
+  @Get('branch/:branchId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Schedule requests for the branch', type: [ScheduleRequestManagerResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiQuery({ name: 'status', enum: ApprovalStatus, enumName: 'ApprovalStatus', required: false })
+  async listByBranch(
+    @Param('branchId') branchId: string,
+    @Query('status') status: ApprovalStatus | undefined,
+    @Request() req: any,
+  ): Promise<ScheduleRequestManagerResponseDto[]> {
+    const requests = await this.scheduleService.listByBranch(branchId, req.user.id, status);
+    return plainToInstance(ScheduleRequestManagerResponseDto, requests);
+  }
+
+  // ── Manager: approve request (UC26 — Assign Shifts) ─────────────────────
+
+  @Patch(':id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Request approved and shift created', type: ScheduleRequestResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiBadRequestResponse({ description: 'Request is not pending' })
+  @ApiNotFoundResponse({ description: 'Schedule request not found' })
+  async approve(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
+    const request = await this.scheduleService.approve(id, req.user.id);
+    return plainToInstance(ScheduleRequestResponseDto, request);
+  }
+
+  // ── Manager: reject request (UC26 — Assign Shifts) ──────────────────────
+
+  @Patch(':id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Request rejected', type: ScheduleRequestResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiBadRequestResponse({ description: 'Request is not pending' })
+  @ApiNotFoundResponse({ description: 'Schedule request not found' })
+  async reject(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
+    const request = await this.scheduleService.reject(id, req.user.id);
+    return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
   // ── Staff: cancel pending request (UC21 — Register Work Schedule) ───────

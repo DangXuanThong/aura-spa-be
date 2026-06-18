@@ -5,6 +5,7 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiQuery,
   ApiTags,
@@ -23,6 +24,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
 import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
+import { ReassignTechnicianDto } from './dto/reassign-technician.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -169,6 +171,22 @@ export class BookingController {
   async checkIn(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.checkIn(id, req.user.id);
     return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
+  // ── Manager: reassign technician (UC28) ─────────────────────────────────
+
+  @Patch(':id/reassign-technician')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Technician reassigned — returns the updated booking', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiBadRequestResponse({ description: 'Booking is not reassignable or technician already assigned' })
+  @ApiNotFoundResponse({ description: 'Booking or technician not found' })
+  async reassignTechnician(@Param('id') id: string, @Body() dto: ReassignTechnicianDto, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.reassign(id, dto, req.user.id);
+    return plainToInstance(BookingResponseDto, booking);
   }
 
   @Get(':id')

@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Request, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { Response } from 'express';
 import { ApiResponse, buildSuccessResponse } from 'src/common/dto/api-response.dto';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -32,7 +34,10 @@ interface RequestWithUser extends Request {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // UC01 — Register Account
   @Post('register')
@@ -129,9 +134,11 @@ export class AuthController {
 
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  @ApiOkResponse({ type: LoginResponseDto })
-  async googleCallback(@Request() req: RequestWithUser): Promise<ApiResponse<LoginResponseData>> {
+  async googleCallback(@Request() req: RequestWithUser, @Res() res: Response): Promise<void> {
     const result = await this.authService.googleLogin(req.user as any);
-    return buildSuccessResponse(result);
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    const url = new URL(`${frontendUrl}/auth/callback`);
+    url.searchParams.set('accessToken', result.accessToken);
+    res.redirect(url.toString());
   }
 }
