@@ -16,9 +16,12 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { BranchStaffService } from './branch-staff.service';
+import { SlotConfigService } from './slot-config.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 import { StaffResponseDto } from './dto/staff-response.dto';
+import { UpdateSlotConfigDto } from './dto/update-slot-config.dto';
+import { SlotConfigResponseDto } from './dto/slot-config-response.dto';
 
 @ApiTags('Branches')
 @Controller('branches')
@@ -28,7 +31,10 @@ import { StaffResponseDto } from './dto/staff-response.dto';
 @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
 @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
 export class BranchStaffController {
-  constructor(private readonly branchStaffService: BranchStaffService) {}
+  constructor(
+    private readonly branchStaffService: BranchStaffService,
+    private readonly slotConfigService: SlotConfigService,
+  ) {}
 
   // ── UC25: List staff ────────────────────────────────────────────────────────
 
@@ -86,5 +92,31 @@ export class BranchStaffController {
   async deactivate(@Param('branchId') branchId: string, @Param('userId') userId: string, @Request() req: any): Promise<StaffResponseDto> {
     const assignment = await this.branchStaffService.deactivate(branchId, userId, req.user.id);
     return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  // ── UC27: List slot configs ─────────────────────────────────────────────────
+
+  @Get(':branchId/slot-configs')
+  @ApiOkResponse({ description: 'Booking slot configs for the branch', type: [SlotConfigResponseDto] })
+  @ApiNotFoundResponse({ description: 'Branch not found' })
+  async listSlotConfigs(@Param('branchId') branchId: string, @Request() req: any): Promise<SlotConfigResponseDto[]> {
+    const configs = await this.slotConfigService.list(branchId, req.user.id);
+    return plainToInstance(SlotConfigResponseDto, configs);
+  }
+
+  // ── UC27: Update slot config ────────────────────────────────────────────────
+
+  @Patch(':branchId/slot-configs/:id')
+  @ApiOkResponse({ description: 'Slot config updated', type: SlotConfigResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid time range' })
+  @ApiNotFoundResponse({ description: 'Slot config not found for this branch' })
+  async updateSlotConfig(
+    @Param('branchId') branchId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateSlotConfigDto,
+    @Request() req: any,
+  ): Promise<SlotConfigResponseDto> {
+    const config = await this.slotConfigService.update(branchId, id, dto, req.user.id);
+    return plainToInstance(SlotConfigResponseDto, config);
   }
 }
