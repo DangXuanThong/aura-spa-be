@@ -21,6 +21,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
 import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
+import { ReassignTechnicianDto } from './dto/reassign-technician.dto';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
@@ -675,6 +676,45 @@ export class BookingService {
 
     const [withServices] = await this.attachServices([booking]);
     return withServices;
+  }
+
+  // UC28 — Reassign Technician
+  async reassign(id: string, dto: ReassignTechnicianDto, managerId: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    await this.assertManagerAtBranch(managerId, booking.branchId);
+
+    const reassignableStatuses = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
+    if (!reassignableStatuses.includes(booking.status)) {
+      throw new BadRequestException('Booking cannot be reassigned in its current status');
+    }
+
+    if (booking.technicianId && dto.newTechnicianId === booking.technicianId) {
+      throw new BadRequestException('New technician is already assigned to this booking');
+    }
+
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { branchId: booking.branchId, userId: dto.newTechnicianId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new NotFoundException(`Technician ${dto.newTechnicianId} is not an active staff member at this branch`);
+    }
+
+    await this.assertTechnicianScheduled(dto.newTechnicianId, booking.branchId, booking.startTime, booking.endTime);
+
+    await this.bookingRepo.update(id, { technicianId: dto.newTechnicianId });
+
+    const updated = (await this.bookingRepo.findOne({ where: { id } })) as Booking;
+    const [withServices] = await this.attachServices([updated]);
+    return withServices;
+  }
+
+  private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: managerId, branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) throw new ForbiddenException('You are not an active manager at this branch');
   }
 
   private async assertTechnicianScheduled(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<void> {
