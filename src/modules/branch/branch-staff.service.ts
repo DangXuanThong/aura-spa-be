@@ -7,11 +7,13 @@ import { BranchStaff } from './entities/branch-staff.entity';
 import { Branch } from './entities/branch.entity';
 import { User } from 'src/modules/user/entities/user.entity';
 import { StaffStatus } from './enums/staff-status.enum';
+import { StaffPosition } from './enums/staff-position.enum';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { UserStatus } from 'src/modules/user/enums/user-status.enum';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
 import { CreateStaffDto } from './dto/create-staff.dto';
+import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 
 @Injectable()
@@ -134,6 +136,96 @@ export class BranchStaffService {
       status: StaffStatus.Inactive,
       endDate: new Date(),
     });
+
+    return this.loadAssignment(branchId, userId);
+  }
+
+  // UC33 — Owner: list manager accounts at branch
+  async listManagers(branchId: string): Promise<BranchStaff[]> {
+    return this.branchStaffRepo.find({
+      where: { branchId, position: StaffPosition.Manager },
+      relations: ['user'],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  // UC33 — Owner: create manager account and assign to branch
+  async createManager(branchId: string, dto: CreateManagerDto): Promise<BranchStaff> {
+    const branch = await this.branchRepo.findOne({ where: { id: branchId } });
+    if (!branch) throw new NotFoundException('Branch not found');
+
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const existing = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+    if (existing) throw new ConflictException('A user with this email already exists');
+
+    const count = await this.branchStaffRepo.count({ where: { branchId, position: StaffPosition.Manager } });
+    const staffCode = `MGR-${branch.code}-${String(count + 1).padStart(3, '0')}`;
+    const passwordHash = await bcrypt.hash(this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD'), 12);
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+
+    const user = await this.userRepo.save(
+      this.userRepo.create({
+        fullName: dto.fullName,
+        email: normalizedEmail,
+        phone: dto.phone ?? null,
+        passwordHash,
+        role: UserRole.Manager,
+        status: UserStatus.Active,
+        authProvider: AuthProvider.Email,
+        gender: dto.gender ?? Gender.Unknown,
+        dateOfBirth: null,
+        address: null,
+        avatarUrl: null,
+      }),
+    );
+
+    const assignment = await this.branchStaffRepo.save(
+      this.branchStaffRepo.create({
+        branchId,
+        userId: user.id,
+        staffCode,
+        position: StaffPosition.Manager,
+        status: StaffStatus.Active,
+        startDate,
+        endDate: null,
+      }),
+    );
+
+    assignment.user = user;
+    return assignment;
+  }
+
+  // UC33 — Owner: edit manager account
+  async updateManager(branchId: string, userId: string, dto: UpdateStaffDto): Promise<BranchStaff> {
+    const assignment = await this.loadAssignment(branchId, userId);
+
+    if (dto.email !== undefined) {
+      const normalizedEmail = dto.email.trim().toLowerCase();
+      if (normalizedEmail !== assignment.user!.email) {
+        const conflict = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+        if (conflict) throw new ConflictException('A user with this email already exists');
+        await this.userRepo.update(userId, { email: normalizedEmail });
+      }
+    }
+
+    const userUpdates: Partial<User> = {};
+    if (dto.fullName !== undefined) userUpdates.fullName = dto.fullName;
+    if (dto.phone !== undefined) userUpdates.phone = dto.phone;
+    if (dto.gender !== undefined) userUpdates.gender = dto.gender;
+    if (Object.keys(userUpdates).length > 0) await this.userRepo.update(userId, userUpdates);
+
+    return this.loadAssignment(branchId, userId);
+  }
+
+  // UC33 — Owner: deactivate manager account
+  async deactivateManager(branchId: string, userId: string): Promise<BranchStaff> {
+    const assignment = await this.loadAssignment(branchId, userId);
+    if (assignment.status === StaffStatus.Inactive) {
+      throw new BadRequestException('Manager account is already inactive');
+    }
+
+    await this.branchStaffRepo.update(assignment.id, { status: StaffStatus.Inactive, endDate: new Date() });
+    await this.userRepo.update(userId, { status: UserStatus.Suspended });
 
     return this.loadAssignment(branchId, userId);
   }

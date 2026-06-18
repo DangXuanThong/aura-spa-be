@@ -18,6 +18,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { BranchStaffService } from './branch-staff.service';
 import { SlotConfigService } from './slot-config.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
+import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 import { StaffResponseDto } from './dto/staff-response.dto';
 import { UpdateSlotConfigDto } from './dto/update-slot-config.dto';
@@ -91,6 +92,47 @@ export class BranchStaffController {
   @ApiNotFoundResponse({ description: 'Staff member not found at this branch' })
   async deactivate(@Param('branchId') branchId: string, @Param('userId') userId: string, @Request() req: any): Promise<StaffResponseDto> {
     const assignment = await this.branchStaffService.deactivate(branchId, userId, req.user.id);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  // ── UC33: Owner — manage branch manager accounts ────────────────────────────
+
+  @Get(':branchId/managers')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Manager accounts at branch', type: [StaffResponseDto] })
+  async listManagers(@Param('branchId') branchId: string): Promise<StaffResponseDto[]> {
+    const assignments = await this.branchStaffService.listManagers(branchId);
+    return plainToInstance(StaffResponseDto, assignments);
+  }
+
+  @Post(':branchId/managers')
+  @Roles(UserRole.Owner)
+  @ApiCreatedResponse({ description: 'Manager account created and assigned to branch', type: StaffResponseDto })
+  @ApiConflictResponse({ description: 'Email already in use' })
+  @ApiNotFoundResponse({ description: 'Branch not found' })
+  async createManager(@Param('branchId') branchId: string, @Body() dto: CreateManagerDto): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.createManager(branchId, dto);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  @Patch(':branchId/managers/:userId')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Manager account updated', type: StaffResponseDto })
+  @ApiConflictResponse({ description: 'Email already in use' })
+  @ApiNotFoundResponse({ description: 'Manager not found at this branch' })
+  async updateManager(@Param('branchId') branchId: string, @Param('userId') userId: string, @Body() dto: UpdateStaffDto): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.updateManager(branchId, userId, dto);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  @Patch(':branchId/managers/:userId/deactivate')
+  @Roles(UserRole.Owner)
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Manager account deactivated', type: StaffResponseDto })
+  @ApiBadRequestResponse({ description: 'Manager already inactive' })
+  @ApiNotFoundResponse({ description: 'Manager not found at this branch' })
+  async deactivateManager(@Param('branchId') branchId: string, @Param('userId') userId: string): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.deactivateManager(branchId, userId);
     return plainToInstance(StaffResponseDto, assignment);
   }
 
