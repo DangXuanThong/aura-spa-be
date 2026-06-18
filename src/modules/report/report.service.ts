@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { Review } from 'src/modules/review/entities/review.entity';
+import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { User } from 'src/modules/user/entities/user.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
@@ -10,6 +11,7 @@ import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
 import { BranchPerformanceReportDto, RevenueSummaryDto, StaffPerformanceDto } from './dto/branch-performance-report.dto';
+import { BranchRevenueSummaryDto, RevenueDashboardDto, RevenueTrendPointDto, TrendGranularity } from './dto/revenue-dashboard.dto';
 
 @Injectable()
 export class ReportService {
@@ -18,6 +20,8 @@ export class ReportService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(Review)
     private readonly reviewRepo: Repository<Review>,
+    @InjectRepository(Branch)
+    private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
   ) {}
@@ -88,6 +92,74 @@ export class ReportService {
       completedServices: parseInt(r.completedServices, 10),
       averageRating: r.averageRating != null ? Math.round(parseFloat(r.averageRating) * 10) / 10 : null,
       reviewCount: parseInt(r.reviewCount, 10),
+    }));
+  }
+
+  // UC36 — Owner: cross-branch revenue dashboard
+  async getRevenueDashboard(from: Date, to: Date, granularity: TrendGranularity): Promise<RevenueDashboardDto> {
+    const [byBranch, trend] = await Promise.all([this.queryByBranch(from, to), this.queryTrend(from, to, granularity)]);
+
+    const totalRevenue = byBranch.reduce((s, b) => s + b.totalRevenue, 0);
+    const totalCompletedBookings = byBranch.reduce((s, b) => s + b.completedBookings, 0);
+    const totalCancelledBookings = byBranch.reduce((s, b) => s + b.cancelledBookings, 0);
+    const averageBookingValue = totalCompletedBookings > 0 ? totalRevenue / totalCompletedBookings : null;
+
+    return {
+      periodFrom: from,
+      periodTo: to,
+      granularity,
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      totalCompletedBookings,
+      totalCancelledBookings,
+      averageBookingValue: averageBookingValue != null ? Math.round(averageBookingValue * 100) / 100 : null,
+      byBranch,
+      trend,
+    };
+  }
+
+  private async queryByBranch(from: Date, to: Date): Promise<BranchRevenueSummaryDto[]> {
+    const rows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .innerJoin(Branch, 'br', 'br.id = b.branchId')
+      .select('b.branchId', 'branchId')
+      .addSelect('br.name', 'branchName')
+      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'totalRevenue')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Cancelled}' THEN 1 END)`, 'cancelledBookings')
+      .addSelect(`AVG(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount END)`, 'averageBookingValue')
+      .where('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .groupBy('b.branchId')
+      .addGroupBy('br.name')
+      .orderBy('totalRevenue', 'DESC')
+      .getRawMany<Record<string, string>>();
+
+    return rows.map((r) => ({
+      branchId: r.branchId,
+      branchName: r.branchName,
+      totalRevenue: parseFloat(r.totalRevenue ?? '0'),
+      completedBookings: parseInt(r.completedBookings ?? '0', 10),
+      cancelledBookings: parseInt(r.cancelledBookings ?? '0', 10),
+      averageBookingValue: r.averageBookingValue != null ? Math.round(parseFloat(r.averageBookingValue) * 100) / 100 : null,
+    }));
+  }
+
+  private async queryTrend(from: Date, to: Date, granularity: TrendGranularity): Promise<RevenueTrendPointDto[]> {
+    const rows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .select(`DATE_TRUNC('${granularity}', b.startTime)`, 'period')
+      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'revenue')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
+      .where('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .groupBy(`DATE_TRUNC('${granularity}', b.startTime)`)
+      .orderBy(`DATE_TRUNC('${granularity}', b.startTime)`, 'ASC')
+      .getRawMany<Record<string, string>>();
+
+    return rows.map((r) => ({
+      period: new Date(r.period).toISOString(),
+      revenue: parseFloat(r.revenue ?? '0'),
+      completedBookings: parseInt(r.completedBookings ?? '0', 10),
     }));
   }
 
