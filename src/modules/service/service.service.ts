@@ -26,13 +26,13 @@ export class ServiceService {
     return this.serviceRepository.save(service);
   }
 
-  async findAll(status?: ServiceStatus): Promise<Service[]> {
+  async findAll(status?: ServiceStatus, includeAll = false): Promise<Service[]> {
     const query = this.serviceRepository.createQueryBuilder('service');
 
-    if (status) {
-      query.where('service.status = :status', { status });
+    if (includeAll) {
+      if (status) query.where('service.status = :status', { status });
     } else {
-      query.where('service.status = :status', { status: ServiceStatus.Active });
+      query.where('service.status = :status', { status: status ?? ServiceStatus.Active });
     }
 
     return query.orderBy('service.name', 'ASC').getMany();
@@ -71,16 +71,11 @@ export class ServiceService {
   async update(id: string, updateServiceDto: UpdateServiceDto): Promise<Service> {
     const service = await this.findOne(id);
 
-    // Check if slug or code already exists for another service
     if (updateServiceDto.slug || updateServiceDto.code) {
       const existingServices = await this.serviceRepository.find({
-        where: [
-          { slug: updateServiceDto.slug || service.slug },
-          { code: updateServiceDto.code || service.code },
-        ],
+        where: [{ slug: updateServiceDto.slug ?? service.slug }, { code: updateServiceDto.code ?? service.code }],
       });
 
-      // Filter out the current service and check if any other service exists
       const otherService = existingServices.find((s) => s.id !== id);
       if (otherService) {
         throw new BadRequestException('Service code or slug already exists');
