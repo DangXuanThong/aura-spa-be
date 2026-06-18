@@ -26,13 +26,13 @@ export class BranchService {
     return this.branchRepository.save(branch);
   }
 
-  async findAll(status?: BranchStatus, search?: string): Promise<Branch[]> {
+  async findAll(status?: BranchStatus, search?: string, includeAll = false): Promise<Branch[]> {
     const query = this.branchRepository.createQueryBuilder('branch');
 
-    if (status) {
-      query.where('branch.status = :status', { status });
+    if (includeAll) {
+      if (status) query.where('branch.status = :status', { status });
     } else {
-      query.where('branch.status = :status', { status: BranchStatus.Active });
+      query.where('branch.status = :status', { status: status ?? BranchStatus.Active });
     }
 
     if (search) {
@@ -65,9 +65,9 @@ export class BranchService {
   async update(id: string, updateBranchDto: UpdateBranchDto): Promise<Branch> {
     const branch = await this.findOne(id);
 
-    if ((updateBranchDto as any).code || (updateBranchDto as any).name) {
+    if (updateBranchDto.code || updateBranchDto.name) {
       const existingBranches = await this.branchRepository.find({
-        where: [{ code: (updateBranchDto as any).code || branch.code }, { name: (updateBranchDto as any).name || branch.name }],
+        where: [{ code: updateBranchDto.code ?? branch.code }, { name: updateBranchDto.name ?? branch.name }],
       });
 
       const otherBranch = existingBranches.find((b: Branch) => b.id !== id);

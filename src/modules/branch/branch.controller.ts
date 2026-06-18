@@ -1,5 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -57,8 +66,25 @@ export class BranchController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Owner role required' })
+  @ApiNotFoundResponse({ description: 'Branch not found' })
   async remove(@Param('id') id: string): Promise<void> {
     return this.branchService.remove(id);
+  }
+
+  // ── UC32: Owner — list all branches (all statuses) ───────────────────────
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'All branches regardless of status', type: [BranchResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner role required' })
+  @ApiQuery({ name: 'status', enum: BranchStatus, required: false, description: 'Filter by specific status' })
+  @ApiQuery({ name: 'search', type: String, required: false })
+  async findAllForOwner(@Query('status') status?: BranchStatus, @Query('search') search?: string): Promise<BranchResponseDto[]> {
+    const branches = await this.branchService.findAll(status, search, true);
+    return plainToInstance(BranchResponseDto, branches);
   }
 
   // ── Public: read-only routes ─────────────────────────────────────────────
