@@ -12,6 +12,7 @@ import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-cou
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
+import { ComplaintStatus } from 'src/modules/communication/enums/complaint-status.enum';
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -672,5 +673,47 @@ export const TREATMENT_COURSE_DEFS = [
         completedAt: null,
       },
     ],
+  },
+];
+
+// ── Complaints ────────────────────────────────────────────────────────────────
+
+export const COMPLAINT_DEFS = [
+  {
+    customerEmail: 'minh.tran@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Technician arrived late',
+    description: 'My appointment was at 9:00 AM but the technician only started at 9:30 AM without any notice. This caused me to be late for work.',
+    status: ComplaintStatus.Open,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'lan.nguyen@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Product caused skin irritation',
+    description: 'After the facial treatment, I developed redness and irritation. I believe the product used was not suitable for my skin type.',
+    status: ComplaintStatus.Open,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'bao.pham@gmail.com',
+    branchCode: 'HCM-Q1',
+    title: 'Overcharged for service',
+    description: 'I was charged 500,000 VND but the price listed on the menu was 350,000 VND. Please investigate.',
+    status: ComplaintStatus.InProgress,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'hoa.le@gmail.com',
+    branchCode: 'HCM-Q7',
+    title: 'Dirty towels used during treatment',
+    description: 'The towels used during my massage session did not appear to be freshly laundered.',
+    status: ComplaintStatus.Resolved,
+    resolutionNote:
+      'We sincerely apologize. We have reviewed our linen management process and provided additional training to our housekeeping staff.',
+    resolvedAt: new Date(),
   },
 ];

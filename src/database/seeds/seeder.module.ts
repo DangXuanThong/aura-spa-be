@@ -22,6 +22,7 @@ import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course
 import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
 import { Conversation } from 'src/modules/communication/entities/conversation.entity';
 import { Message } from 'src/modules/communication/entities/message.entity';
+import { Complaint } from 'src/modules/communication/entities/complaint.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
 import { SeederService } from './seeder.service';
@@ -36,6 +37,7 @@ import { InventorySeeder } from './inventory.seeder';
 import { PromotionSeeder } from './promotion.seeder';
 import { DiscountCodeSeeder } from './discount-code.seeder';
 import { ConversationSeeder } from './conversation.seeder';
+import { ComplaintSeeder } from './complaint.seeder';
 
 @Module({
   imports: [
@@ -62,6 +64,7 @@ import { ConversationSeeder } from './conversation.seeder';
       TreatmentSession,
       Conversation,
       Message,
+      Complaint,
       ScheduleRequest,
       StaffSchedule,
     ]),
@@ -78,6 +81,7 @@ import { ConversationSeeder } from './conversation.seeder';
     DiscountCodeSeeder,
     TreatmentSeeder,
     ConversationSeeder,
+    ComplaintSeeder,
     ScheduleSeeder,
   ],
 })

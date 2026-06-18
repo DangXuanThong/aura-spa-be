@@ -20,6 +20,7 @@ import { PromotionSeeder } from './promotion.seeder';
 import { DiscountCodeSeeder } from './discount-code.seeder';
 import { TreatmentSeeder } from './treatment.seeder';
 import { ConversationSeeder } from './conversation.seeder';
+import { ComplaintSeeder } from './complaint.seeder';
 import { ScheduleSeeder } from './schedule.seeder';
 import { OWNER, CUSTOMERS, STAFF, BRANCHES, SERVICES } from './seed-data';
 
@@ -45,6 +46,7 @@ export class SeederService implements OnApplicationBootstrap {
     private readonly discountCodeSeeder: DiscountCodeSeeder,
     private readonly treatmentSeeder: TreatmentSeeder,
     private readonly conversationSeeder: ConversationSeeder,
+    private readonly complaintSeeder: ComplaintSeeder,
     private readonly scheduleSeeder: ScheduleSeeder,
   ) {}
 
@@ -65,6 +67,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.discountCodeSeeder.seed();
     await this.treatmentSeeder.seed();
     await this.conversationSeeder.seed();
+    await this.complaintSeeder.seed();
     await this.scheduleSeeder.seed();
   }
 
