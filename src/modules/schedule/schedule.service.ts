@@ -6,12 +6,20 @@ import { StaffSchedule } from './entities/staff-schedule';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { ApprovalStatus } from './enums/approval-status.enum';
+import { ScheduleRequestType } from './enums/schedule-request-type.enum';
 import { ScheduleStatus } from './enums/schedule-status.enum';
+import { ScheduleType } from './enums/schedule-type.enum';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
+
+const REQUEST_TYPE_TO_SCHEDULE_TYPE: Record<ScheduleRequestType, ScheduleType> = {
+  [ScheduleRequestType.WorkShift]: ScheduleType.Working,
+  [ScheduleRequestType.DayOff]: ScheduleType.DayOff,
+  [ScheduleRequestType.Leave]: ScheduleType.Leave,
+};
 
 @Injectable()
 export class ScheduleService {
@@ -140,6 +148,68 @@ export class ScheduleService {
     return Array.from(dayMap.values());
   }
 
+  // UC26 — List schedule requests for a branch (manager)
+  async listByBranch(
+    branchId: string,
+    managerId: string,
+    status?: ApprovalStatus,
+  ): Promise<(ScheduleRequest & { staffFullName: string; staffEmail: string | null })[]> {
+    await this.assertManagerAtBranch(managerId, branchId);
+
+    const requests = await this.scheduleRequestRepo.find({
+      where: { branchId, ...(status ? { status } : {}) },
+      relations: ['staff'],
+      order: { requestedStart: 'ASC' },
+    });
+
+    return requests.map((r) => Object.assign(r, { staffFullName: r.staff?.fullName ?? '', staffEmail: r.staff?.email ?? null }));
+  }
+
+  // UC26 — Approve a schedule request and create the corresponding shift
+  async approve(id: string, managerId: string): Promise<ScheduleRequest> {
+    const request = await this.scheduleRequestRepo.findOne({ where: { id } });
+    if (!request) throw new NotFoundException('Schedule request not found');
+    if (request.status !== ApprovalStatus.Pending) {
+      throw new BadRequestException('Only pending requests can be approved');
+    }
+
+    await this.assertManagerAtBranch(managerId, request.branchId);
+
+    const now = new Date();
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
+
+    await this.staffScheduleRepo.save(
+      this.staffScheduleRepo.create({
+        staffId: request.staffId,
+        branchId: request.branchId,
+        startTime: request.requestedStart,
+        endTime: request.requestedEnd,
+        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
+        status: ScheduleStatus.Active,
+        sourceRequestId: request.id,
+        createdBy: managerId,
+      }),
+    );
+
+    return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+  }
+
+  // UC26 — Reject a schedule request
+  async reject(id: string, managerId: string): Promise<ScheduleRequest> {
+    const request = await this.scheduleRequestRepo.findOne({ where: { id } });
+    if (!request) throw new NotFoundException('Schedule request not found');
+    if (request.status !== ApprovalStatus.Pending) {
+      throw new BadRequestException('Only pending requests can be rejected');
+    }
+
+    await this.assertManagerAtBranch(managerId, request.branchId);
+
+    const now = new Date();
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
+
+    return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+  }
+
   // UC21 — Cancel a pending schedule request
   async cancel(id: string, staffId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
@@ -151,5 +221,12 @@ export class ScheduleService {
 
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Cancelled });
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+  }
+
+  private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: managerId, branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) throw new ForbiddenException('You are not an active staff member at this branch');
   }
 }
