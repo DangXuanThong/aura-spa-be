@@ -34,6 +34,15 @@ export const STAFF = [
   { fullName: 'Vo Thi Thu', email: 'thu.vo@aura-spa.com', phone: '0902222001', gender: Gender.Female },
   { fullName: 'Nguyen Van Duc', email: 'duc.nguyen@aura-spa.com', phone: '0902222002', gender: Gender.Male },
   { fullName: 'Tran Thi Bich', email: 'bich.tran@aura-spa.com', phone: '0902222003', gender: Gender.Female },
+  // Second technician at HCM-Q1 (UC28 reassign demo)
+  { fullName: 'Pham Van Long', email: 'long.pham@aura-spa.com', phone: '0902222004', gender: Gender.Male },
+];
+
+// Managers — one per branch, role UserRole.Manager
+export const MANAGERS = [
+  { fullName: 'Nguyen Thi Huong', email: 'huong.manager@aura-spa.com', phone: '0902333001', gender: Gender.Female },
+  { fullName: 'Tran Van Khanh', email: 'khanh.manager@aura-spa.com', phone: '0902333002', gender: Gender.Male },
+  { fullName: 'Le Thi Phuong', email: 'phuong.manager@aura-spa.com', phone: '0902333003', gender: Gender.Female },
 ];
 
 // ── Branches ──────────────────────────────────────────────────────────────────
@@ -145,6 +154,12 @@ export const STAFF_ASSIGNMENTS = [
   { email: 'thu.vo@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-001', position: StaffPosition.Technician },
   { email: 'duc.nguyen@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'STF-HCM-Q7-001', position: StaffPosition.Technician },
   { email: 'bich.tran@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'STF-HAN-HK-001', position: StaffPosition.Technician },
+  // Second technician at HCM-Q1 (UC28 reassign demo)
+  { email: 'long.pham@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-002', position: StaffPosition.Technician },
+  // Managers (UC26–31)
+  { email: 'huong.manager@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'MGR-HCM-Q1-001', position: StaffPosition.Manager },
+  { email: 'khanh.manager@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'MGR-HCM-Q7-001', position: StaffPosition.Manager },
+  { email: 'phuong.manager@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'MGR-HAN-HK-001', position: StaffPosition.Manager },
 ];
 
 // ── Bookings ──────────────────────────────────────────────────────────────────
@@ -570,6 +585,21 @@ export const SCHEDULE_DEFS = [
         status: ApprovalStatus.Pending,
         reason: 'Xin nghỉ cuối tuần tới',
         shiftDays: [],
+      },
+    ],
+  },
+  // Second technician at HCM-Q1 — shifts needed so UC28 reassign passes schedule check
+  {
+    staffEmail: 'long.pham@aura-spa.com',
+    branchCode: 'HCM-Q1',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
       },
     ],
   },

@@ -30,9 +30,8 @@ export class BranchSetupSeeder {
     if (!branches.length) return;
     const branchMap = new Map(branches.map((b) => [b.code, b]));
 
-    const staffUsers = await this.userRepo.find({
-      where: { email: In(['thu.vo@aura-spa.com', 'duc.nguyen@aura-spa.com', 'bich.tran@aura-spa.com']) },
-    });
+    const allAssignmentEmails = STAFF_ASSIGNMENTS.map((a) => a.email);
+    const staffUsers = await this.userRepo.find({ where: { email: In(allAssignmentEmails) } });
     const staffMap = new Map(staffUsers.filter((u) => u.email !== null).map((u) => [u.email!, u]));
 
     const services = await this.serviceRepo.find();

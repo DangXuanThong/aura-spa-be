@@ -22,7 +22,7 @@ import { TreatmentSeeder } from './treatment.seeder';
 import { ConversationSeeder } from './conversation.seeder';
 import { ComplaintSeeder } from './complaint.seeder';
 import { ScheduleSeeder } from './schedule.seeder';
-import { OWNER, CUSTOMERS, STAFF, BRANCHES, SERVICES } from './seed-data';
+import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
 @Injectable()
 export class SeederService implements OnApplicationBootstrap {
@@ -55,6 +55,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.seedOwnerAccount();
     await this.seedCustomers();
     await this.seedStaff();
+    await this.seedManagers();
     await this.seedBranches();
     await this.seedServices();
     await this.branchSetupSeeder.seed();
@@ -155,6 +156,35 @@ export class SeederService implements OnApplicationBootstrap {
 
     if (seeded > 0) this.logger.log(`Seeded ${seeded} staff member(s)`);
     else this.logger.log('Staff already exist — skipping');
+  }
+
+  // ── Managers (UC26–31) ────────────────────────────────────────────────────
+
+  private async seedManagers(): Promise<void> {
+    const passwordHash = await bcrypt.hash('Manager123!', 12);
+    let seeded = 0;
+
+    for (const m of MANAGERS) {
+      const exists = await this.userRepository.findOne({ where: { email: m.email } });
+      if (exists) continue;
+
+      await this.userRepository.save(
+        this.userRepository.create({
+          ...m,
+          passwordHash,
+          role: UserRole.Manager,
+          status: UserStatus.Active,
+          authProvider: AuthProvider.Email,
+          avatarUrl: null,
+          dateOfBirth: null,
+          address: null,
+        }),
+      );
+      seeded++;
+    }
+
+    if (seeded > 0) this.logger.log(`Seeded ${seeded} manager(s)`);
+    else this.logger.log('Managers already exist — skipping');
   }
 
   // ── Branches ─────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import * as bcrypt from 'bcryptjs';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { BranchStaff } from './entities/branch-staff.entity';
 import { Branch } from './entities/branch.entity';
@@ -13,8 +14,6 @@ import { Gender } from 'src/modules/user/enums/gender.enum';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
 
-const DEFAULT_STAFF_PASSWORD = 'Staff@123!';
-
 @Injectable()
 export class BranchStaffService {
   constructor(
@@ -24,6 +23,7 @@ export class BranchStaffService {
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly configService: ConfigService,
   ) {}
 
   // UC25 — List staff at branch
@@ -56,7 +56,7 @@ export class BranchStaffService {
 
     const count = await this.branchStaffRepo.count({ where: { branchId } });
     const staffCode = `STF-${branch.code}-${String(count + 1).padStart(3, '0')}`;
-    const passwordHash = await bcrypt.hash(DEFAULT_STAFF_PASSWORD, 12);
+    const passwordHash = await bcrypt.hash(this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD'), 12);
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
 
     const user = await this.userRepo.save(
