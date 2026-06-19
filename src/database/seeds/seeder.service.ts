@@ -22,6 +22,7 @@ import { TreatmentSeeder } from './treatment.seeder';
 import { ConversationSeeder } from './conversation.seeder';
 import { ComplaintSeeder } from './complaint.seeder';
 import { ScheduleSeeder } from './schedule.seeder';
+import { PerformanceDataSeeder } from './performance-data.seeder';
 import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
 @Injectable()
@@ -48,6 +49,7 @@ export class SeederService implements OnApplicationBootstrap {
     private readonly conversationSeeder: ConversationSeeder,
     private readonly complaintSeeder: ComplaintSeeder,
     private readonly scheduleSeeder: ScheduleSeeder,
+    private readonly performanceDataSeeder: PerformanceDataSeeder,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -70,6 +72,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.conversationSeeder.seed();
     await this.complaintSeeder.seed();
     await this.scheduleSeeder.seed();
+    await this.performanceDataSeeder.seed();
   }
 
   // ── Owner ────────────────────────────────────────────────────────────────
