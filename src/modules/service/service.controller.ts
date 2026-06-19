@@ -1,5 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -49,8 +58,24 @@ export class ServiceController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Owner role required' })
+  @ApiNotFoundResponse({ description: 'Service not found' })
   async remove(@Param('id') id: string): Promise<void> {
     return this.serviceService.remove(id);
+  }
+
+  // ── UC34: Owner — list all services (all statuses) ───────────────────────
+
+  @Get('all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'All services regardless of status', type: [ServiceResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner role required' })
+  @ApiQuery({ name: 'status', enum: ServiceStatus, required: false, description: 'Filter by specific status' })
+  async findAllForOwner(@Query('status') status?: ServiceStatus): Promise<ServiceResponseDto[]> {
+    const services = await this.serviceService.findAll(status, true);
+    return plainToInstance(ServiceResponseDto, services);
   }
 
   // ── Public: read-only routes (UC06 — Guest View Service Catalogue) ────────

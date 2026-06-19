@@ -38,6 +38,7 @@ import { PromotionSeeder } from './promotion.seeder';
 import { DiscountCodeSeeder } from './discount-code.seeder';
 import { ConversationSeeder } from './conversation.seeder';
 import { ComplaintSeeder } from './complaint.seeder';
+import { PerformanceDataSeeder } from './performance-data.seeder';
 
 @Module({
   imports: [
@@ -83,6 +84,7 @@ import { ComplaintSeeder } from './complaint.seeder';
     ConversationSeeder,
     ComplaintSeeder,
     ScheduleSeeder,
+    PerformanceDataSeeder,
   ],
 })
 export class SeederModule {}
