@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
-import { IsDateString, IsEnum, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDateString, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
@@ -8,6 +9,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ReportService } from './report.service';
 import { BranchPerformanceReportDto } from './dto/branch-performance-report.dto';
 import { RevenueDashboardDto, TrendGranularity } from './dto/revenue-dashboard.dto';
+import { BranchRankingsDto, PopularServicesRankingsDto, TopStaffRankingsDto } from './dto/performance-rankings.dto';
 
 class ReportQueryDto {
   @IsOptional()
@@ -23,6 +25,15 @@ class DashboardQueryDto extends ReportQueryDto {
   @IsOptional()
   @IsEnum(TrendGranularity)
   granularity?: TrendGranularity;
+}
+
+class RankingQueryDto extends ReportQueryDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  limit?: number;
 }
 
 @ApiTags('Reports')
@@ -70,5 +81,43 @@ export class ReportController {
     const to = query.to ? new Date(query.to) : new Date();
     const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
     return this.reportService.getBranchPerformance(branchId, req.user.id, from, to);
+  }
+
+  // ── UC37: Owner — performance rankings ───────────────────────────────────────
+
+  @Get('rankings/staff')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Top-performing technicians across all branches ranked by completed services', type: TopStaffRankingsDto })
+  @ApiQuery({ name: 'from', required: false, description: 'Period start (ISO date). Defaults to 30 days ago.' })
+  @ApiQuery({ name: 'to', required: false, description: 'Period end (ISO date). Defaults to now.' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max results (1–50). Defaults to 10.' })
+  async getTopStaffRankings(@Query() query: RankingQueryDto): Promise<TopStaffRankingsDto> {
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return this.reportService.getTopStaffRankings(from, to, query.limit ?? 10);
+  }
+
+  @Get('rankings/services')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Most popular services ranked by number of completed bookings', type: PopularServicesRankingsDto })
+  @ApiQuery({ name: 'from', required: false, description: 'Period start (ISO date). Defaults to 30 days ago.' })
+  @ApiQuery({ name: 'to', required: false, description: 'Period end (ISO date). Defaults to now.' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max results (1–50). Defaults to 10.' })
+  async getPopularServicesRankings(@Query() query: RankingQueryDto): Promise<PopularServicesRankingsDto> {
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return this.reportService.getPopularServicesRankings(from, to, query.limit ?? 10);
+  }
+
+  @Get('rankings/branches')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Best-performing branches ranked by total revenue', type: BranchRankingsDto })
+  @ApiQuery({ name: 'from', required: false, description: 'Period start (ISO date). Defaults to 30 days ago.' })
+  @ApiQuery({ name: 'to', required: false, description: 'Period end (ISO date). Defaults to now.' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max results (1–50). Defaults to 10.' })
+  async getBranchRankings(@Query() query: RankingQueryDto): Promise<BranchRankingsDto> {
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return this.reportService.getBranchRankings(from, to, query.limit ?? 10);
   }
 }

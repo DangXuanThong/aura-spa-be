@@ -2,16 +2,26 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { BookingService as BookingServiceEntity } from 'src/modules/booking/entities/booking-service.entity';
 import { Review } from 'src/modules/review/entities/review.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { User } from 'src/modules/user/entities/user.entity';
+import { Service as ServiceEntity } from 'src/modules/service/entities/service.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
 import { BranchPerformanceReportDto, RevenueSummaryDto, StaffPerformanceDto } from './dto/branch-performance-report.dto';
 import { BranchRevenueSummaryDto, RevenueDashboardDto, RevenueTrendPointDto, TrendGranularity } from './dto/revenue-dashboard.dto';
+import {
+  BranchRankingItemDto,
+  BranchRankingsDto,
+  PopularServiceRankingItemDto,
+  PopularServicesRankingsDto,
+  TopStaffRankingItemDto,
+  TopStaffRankingsDto,
+} from './dto/performance-rankings.dto';
 
 @Injectable()
 export class ReportService {
@@ -168,5 +178,119 @@ export class ReportService {
       where: { userId: managerId, branchId, status: StaffStatus.Active },
     });
     if (!assignment) throw new ForbiddenException('You are not an active manager at this branch');
+  }
+
+  // UC37 — Owner: performance rankings
+
+  async getTopStaffRankings(from: Date, to: Date, limit: number): Promise<TopStaffRankingsDto> {
+    const bookingRows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .innerJoin(User, 'u', 'u.id = b.technicianId')
+      .select('b.technicianId', 'staffId')
+      .addSelect('u.fullName', 'staffName')
+      .addSelect('COUNT(b.id)', 'completedServices')
+      .addSelect('COALESCE(SUM(b.paidAmount), 0)', 'revenueGenerated')
+      .where('b.status = :status', { status: BookingStatus.Completed })
+      .andWhere('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .andWhere('b.technicianId IS NOT NULL')
+      .groupBy('b.technicianId')
+      .addGroupBy('u.fullName')
+      .orderBy('COUNT(b.id)', 'DESC')
+      .limit(limit)
+      .getRawMany<Record<string, string>>();
+
+    let reviewMap = new Map<string, Record<string, string>>();
+    if (bookingRows.length > 0) {
+      const ids = bookingRows.map((r) => r.staffId);
+      const reviewRows = await this.reviewRepo
+        .createQueryBuilder('r')
+        .select('r.technicianId', 'technicianId')
+        .addSelect('AVG(r.rating)', 'averageRating')
+        .addSelect('COUNT(r.id)', 'reviewCount')
+        .where('r.technicianId IN (:...ids)', { ids })
+        .andWhere('r.status = :status', { status: ReviewStatus.Published })
+        .groupBy('r.technicianId')
+        .getRawMany<Record<string, string>>();
+      reviewMap = new Map(reviewRows.map((r) => [r.technicianId, r]));
+    }
+
+    const rankings: TopStaffRankingItemDto[] = bookingRows.map((r, i) => {
+      const rv = reviewMap.get(r.staffId);
+      return {
+        rank: i + 1,
+        staffId: r.staffId,
+        staffName: r.staffName,
+        completedServices: parseInt(r.completedServices, 10),
+        revenueGenerated: Math.round(parseFloat(r.revenueGenerated ?? '0') * 100) / 100,
+        averageRating: rv?.averageRating != null ? Math.round(parseFloat(rv.averageRating) * 10) / 10 : null,
+        reviewCount: rv ? parseInt(rv.reviewCount, 10) : 0,
+      };
+    });
+
+    return { periodFrom: from, periodTo: to, rankings };
+  }
+
+  async getPopularServicesRankings(from: Date, to: Date, limit: number): Promise<PopularServicesRankingsDto> {
+    const rows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .innerJoin(BookingServiceEntity, 'bs', 'bs.bookingId = b.id')
+      .innerJoin(ServiceEntity, 'svc', 'svc.id = bs.serviceId')
+      .select('bs.serviceId', 'serviceId')
+      .addSelect('svc.name', 'serviceName')
+      .addSelect('svc.category', 'category')
+      .addSelect('COUNT(DISTINCT b.id)', 'bookingCount')
+      .addSelect('COALESCE(SUM(bs.finalAmount), 0)', 'totalRevenue')
+      .where('b.status = :status', { status: BookingStatus.Completed })
+      .andWhere('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .groupBy('bs.serviceId')
+      .addGroupBy('svc.name')
+      .addGroupBy('svc.category')
+      .orderBy('COUNT(DISTINCT b.id)', 'DESC')
+      .limit(limit)
+      .getRawMany<Record<string, string>>();
+
+    const rankings: PopularServiceRankingItemDto[] = rows.map((r, i) => ({
+      rank: i + 1,
+      serviceId: r.serviceId,
+      serviceName: r.serviceName,
+      category: r.category ?? null,
+      bookingCount: parseInt(r.bookingCount, 10),
+      totalRevenue: Math.round(parseFloat(r.totalRevenue ?? '0') * 100) / 100,
+    }));
+
+    return { periodFrom: from, periodTo: to, rankings };
+  }
+
+  async getBranchRankings(from: Date, to: Date, limit: number): Promise<BranchRankingsDto> {
+    const rows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .innerJoin(Branch, 'br', 'br.id = b.branchId')
+      .select('b.branchId', 'branchId')
+      .addSelect('br.name', 'branchName')
+      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'totalRevenue')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Cancelled}' THEN 1 END)`, 'cancelledBookings')
+      .addSelect(`AVG(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount END)`, 'averageBookingValue')
+      .where('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .groupBy('b.branchId')
+      .addGroupBy('br.name')
+      .orderBy('totalRevenue', 'DESC')
+      .limit(limit)
+      .getRawMany<Record<string, string>>();
+
+    const rankings: BranchRankingItemDto[] = rows.map((r, i) => ({
+      rank: i + 1,
+      branchId: r.branchId,
+      branchName: r.branchName,
+      totalRevenue: Math.round(parseFloat(r.totalRevenue ?? '0') * 100) / 100,
+      completedBookings: parseInt(r.completedBookings ?? '0', 10),
+      cancelledBookings: parseInt(r.cancelledBookings ?? '0', 10),
+      averageBookingValue: r.averageBookingValue != null ? Math.round(parseFloat(r.averageBookingValue) * 100) / 100 : null,
+    }));
+
+    return { periodFrom: from, periodTo: to, rankings };
   }
 }
