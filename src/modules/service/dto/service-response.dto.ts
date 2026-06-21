@@ -8,7 +8,7 @@ export class ServiceResponseDto {
   @ApiProperty({ example: 'SVC-FACIAL-001' })
   code!: string;
 
-  @ApiProperty({ example: 'Chăm sóc da mặt cơ bản' })
+  @ApiProperty({ example: 'Cham soc da mat co ban' })
   name!: string;
 
   @ApiProperty({ example: 'cham-soc-da-mat-co-ban' })
@@ -17,8 +17,11 @@ export class ServiceResponseDto {
   @ApiPropertyOptional({ example: 'Facial' })
   category!: string | null;
 
-  @ApiPropertyOptional({ example: 'Làm sạch và dưỡng ẩm chuyên sâu cho da mặt.' })
+  @ApiPropertyOptional({ example: 'Lam sach va duong am chuyen sau cho da mat.' })
   description!: string | null;
+
+  @ApiPropertyOptional({ example: 'https://example.com/service-image.jpg' })
+  imageUrl!: string | null;
 
   @ApiProperty({ example: 60 })
   defaultDurationMinutes!: number;

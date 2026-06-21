@@ -5,13 +5,19 @@ import { Resend } from 'resend';
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly resend: Resend;
+  private readonly resend: Resend | null;
 
   constructor(private readonly configService: ConfigService) {
-    this.resend = new Resend(this.configService.getOrThrow<string>('RESEND_API_KEY'));
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    this.resend = apiKey && !apiKey.includes('your_api_key_here') ? new Resend(apiKey) : null;
   }
 
   async sendOtpEmail(to: string, otp: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn(`RESEND_API_KEY is not configured. OTP for ${to}: ${otp}`);
+      return;
+    }
+
     const fromName = this.configService.get<string>('MAIL_FROM_NAME', 'Aura Spa');
     const fromAddress = this.configService.getOrThrow<string>('MAIL_FROM');
 

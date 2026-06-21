@@ -22,6 +22,7 @@ import { UpdateBranchDto } from './dto/update-branch.dto';
 import { BranchResponseDto } from './dto/branch-response.dto';
 import { BranchOpeningHoursResponseDto } from './dto/branch-opening-hours-response.dto';
 import { BranchServiceDetailResponseDto } from './dto/branch-service-detail-response.dto';
+import { StaffResponseDto } from './dto/staff-response.dto';
 import { BranchStatus } from './enums/branch-status.enum';
 
 @ApiTags('Branches')
@@ -121,6 +122,13 @@ export class BranchController {
   ): Promise<BranchResponseDto[]> {
     const branches = await this.branchService.getNearby(latitude, longitude, radius);
     return plainToInstance(BranchResponseDto, branches);
+  }
+
+  @Get(':id/technicians')
+  @ApiOkResponse({ description: 'Active technicians assigned to this branch', type: [StaffResponseDto] })
+  async getTechnicians(@Param('id') id: string): Promise<StaffResponseDto[]> {
+    const technicians = await this.branchService.findActiveTechnicians(id);
+    return plainToInstance(StaffResponseDto, technicians);
   }
 
   @Get(':id')

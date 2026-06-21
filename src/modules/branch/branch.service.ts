@@ -3,14 +3,19 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { BranchStaff } from './entities/branch-staff.entity';
 import { Branch } from './entities/branch.entity';
 import { BranchStatus } from './enums/branch-status.enum';
+import { StaffPosition } from './enums/staff-position.enum';
+import { StaffStatus } from './enums/staff-status.enum';
 
 @Injectable()
 export class BranchService {
   constructor(
     @InjectRepository(Branch)
     private readonly branchRepository: Repository<Branch>,
+    @InjectRepository(BranchStaff)
+    private readonly branchStaffRepository: Repository<BranchStaff>,
   ) {}
 
   async create(createBranchDto: CreateBranchDto): Promise<Branch> {
@@ -113,5 +118,19 @@ export class BranchService {
       `,
       [BranchStatus.Active, latitude, longitude, radiusKm],
     );
+  }
+
+  async findActiveTechnicians(branchId: string): Promise<BranchStaff[]> {
+    await this.findOne(branchId);
+
+    return this.branchStaffRepository.find({
+      where: {
+        branchId,
+        position: StaffPosition.Technician,
+        status: StaffStatus.Active,
+      },
+      relations: ['user'],
+      order: { staffCode: 'ASC' },
+    });
   }
 }

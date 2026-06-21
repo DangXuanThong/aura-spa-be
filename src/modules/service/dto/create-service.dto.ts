@@ -32,6 +32,11 @@ export class CreateServiceDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ description: 'Service illustration image URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
   @ApiProperty({ description: 'Default duration in minutes', example: 60 })
   @IsNotEmpty()
   @IsInt()
