@@ -19,6 +19,10 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.enableCors({
+    origin: 'http://localhost:3000',
+    credentials: true,
+  });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AURA SPA API')
