@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDecimal, IsInt, IsNotEmpty, IsNumberString, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsNumberString, IsOptional, IsPositive, Min } from 'class-validator';
 
 export class CreateBranchServiceDto {
   @ApiProperty({ description: 'Branch ID' })
@@ -25,8 +25,8 @@ export class CreateBranchServiceDto {
 
   @ApiPropertyOptional({ description: 'Override service price for this branch' })
   @IsOptional()
-  @IsDecimal()
-  @Min(0)
+  @IsNumber()
+  @IsPositive()
   priceOverride?: number;
 
   @ApiPropertyOptional({ description: 'Maximum parallel bookings for this service at this branch' })
