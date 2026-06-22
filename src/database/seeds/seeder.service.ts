@@ -26,6 +26,7 @@ import { ScheduleSeeder } from './schedule.seeder';
 import { PerformanceDataSeeder } from './performance-data.seeder';
 import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
+/* eslint-disable max-len -- External image URLs are opaque provider-generated values. */
 const MASSAGE_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuAac7WTbymLJneytGE32jl_6mZs8HB5e7peYvWSICJEjugnfoFn9hqi-Z89SyFX_FtMebEnwXwECz37pkn2Cr_fHOO9Wb3F_ZF9MQ24TsMoETpYV18oDWZxG-ccf2fx3EOv5ICbFAp6UP8d96KPWSPos5eNYJerhenxI06RtryA8-a3xcbE6KnzmpPHQNOFnk7FohSvHeuNE_fm51bo7Rm1tfie71p9cGKfhoQ23o3QoGI76AartLuTxv3vSUEtedpr8RJ-yAAtmRE';
 const FACIAL_IMAGE =
@@ -34,6 +35,7 @@ const WELLNESS_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCm_drm21aKgARIN6cbluYOTLae7X7hdcc6zfRCBz4fbAwam5NbcMAGruyiwBUzRptvuHzW1jydIqiyO1ISxqpBUKOlyNYpQRGWXN_Qo-UPflyeE2x253FCaHL-xgHPDgbZmHq7C7G4T4wI2qv4tEilcqDDfvyxmWkXI7qaqUdiJioYHvvNLgRl7XlEyP7bTW7WlAXPfsdOJeFxCX97OCvZfhYGFizo1mEguppmk6ZNaq_HdZ4qWvpoAhYo5rcxhfwfcJwS5e9dpJ8';
 const COUPLE_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuC3ABZQOib4ahsVNToef3M5aX7h8HSD5iv-ZgCnqWTrvpkS6aTZMkdlB8-xs-Liu42swcMJIf2yTJ1-6pZUiX3faYcvl3ZGrHZIQGJbTCB34f9Bx3C6IeFWEO_NciiKa5f7AYR1OquqoWPK94usP9aIpYDamSbgHO86rPz2mF6P-NVn-KqrusGn0ND-mEEp6wdbJoYqud9yFjRY3y136ERm9wWZviyXZXqysa6TQCVFed_tO35FLQwdJ9t4xaUoXFfovQiorIraCag';
+/* eslint-enable max-len */
 
 const SERVICE_PRESENTATION_OVERRIDES: Record<string, Partial<Service>> = {
   'SVC-FACIAL-001': {
