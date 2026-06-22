@@ -20,6 +20,9 @@ export class ServiceResponseDto {
   @ApiPropertyOptional({ example: 'Làm sạch và dưỡng ẩm chuyên sâu cho da mặt.' })
   description!: string | null;
 
+  @ApiPropertyOptional({ example: 'https://example.com/service-image.jpg' })
+  imageUrl!: string | null;
+
   @ApiProperty({ example: 60 })
   defaultDurationMinutes!: number;
 

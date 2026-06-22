@@ -23,6 +23,9 @@ export class Service {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  @Column({ name: 'image_url', type: 'text', nullable: true })
+  imageUrl!: string | null;
+
   @Column({ name: 'default_duration_minutes', type: 'int', nullable: false })
   defaultDurationMinutes!: number;
 
