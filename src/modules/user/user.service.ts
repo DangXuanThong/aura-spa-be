@@ -9,7 +9,7 @@ export interface FindUserByEmailOptions {
 
 export interface CreateUserData {
   fullName: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   passwordHash: string | null;
   authProvider: User['authProvider'];

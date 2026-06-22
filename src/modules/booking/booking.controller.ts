@@ -43,12 +43,14 @@ export class BookingController {
   @ApiQuery({ name: 'branchId', type: String, required: true })
   @ApiQuery({ name: 'serviceId', type: String, required: true })
   @ApiQuery({ name: 'date', type: String, required: true, description: 'Local date in YYYY-MM-DD format' })
+  @ApiQuery({ name: 'technicianId', type: String, required: false, description: 'Optional technician to check personal availability' })
   async getAvailableSlots(
     @Query('branchId') branchId: string,
     @Query('serviceId') serviceId: string,
     @Query('date') date: string,
+    @Query('technicianId') technicianId?: string,
   ): Promise<AvailableSlotsResponseDto> {
-    return this.availabilityService.getAvailableSlots(branchId, serviceId, date);
+    return this.availabilityService.getAvailableSlots(branchId, serviceId, date, technicianId);
   }
 
   // ── Customer: booking routes (UC10 — Book Appointment) ──────────────────
