@@ -1,143 +1,180 @@
 # Seeding
 
-The application automatically seeds initial data into the database on startup via `SeederService`, which implements `onApplicationBootstrap`. Seeding only runs when `NODE_ENV` is not `production`. All seed methods are idempotent — they check for existing records before inserting, so restarting the server will never create duplicates.
+Development seed data is handled by `SeederService`, which implements
+`OnApplicationBootstrap`. Seeding runs automatically on application bootstrap
+when `NODE_ENV !== production`.
 
-## Sequence Diagram
+Seeders are designed to be idempotent. They check existing rows before inserting
+so repeated local restarts do not create duplicate core records.
+
+## Bootstrap Order
+
+`SeederService.onApplicationBootstrap()` currently runs:
+
+1. owner account
+2. customers
+3. staff
+4. managers
+5. branches
+6. services
+7. service presentation overrides/additional services
+8. branch setup
+9. bookings
+10. payments
+11. reviews
+12. health records
+13. inventory
+14. promotions
+15. discount codes
+16. treatment courses and sessions
+17. conversations
+18. complaints
+19. schedules
+20. performance data
+
+## Accounts
+
+### Owner
+
+| Field | Value |
+| --- | --- |
+| Email | `owner@gmail.com` |
+| Password | `12345678qwerty` |
+| Role | `owner` |
+| Status | `active` |
+
+Change this before any shared or production deployment.
+
+### Customers
+
+Seeded customer password:
+
+```text
+Customer123!
+```
+
+Seeded customers:
+
+- `lan.nguyen@gmail.com`
+- `minh.tran@gmail.com`
+- `hoa.le@gmail.com`
+- `bao.pham@gmail.com`
+- `mai.hoang@gmail.com`
+
+### Staff
+
+Seeded staff password:
+
+```text
+Staff123!
+```
+
+Seeded staff:
+
+- `thu.vo@aura-spa.com`
+- `duc.nguyen@aura-spa.com`
+- `bich.tran@aura-spa.com`
+- `long.pham@aura-spa.com`
+
+### Managers
+
+Seeded manager password:
+
+```text
+Manager123!
+```
+
+Seeded managers:
+
+- `huong.manager@aura-spa.com`
+- `khanh.manager@aura-spa.com`
+- `phuong.manager@aura-spa.com`
+
+## Branches
+
+Seeded branches include active branches in Ho Chi Minh City, Hanoi, and Da Nang,
+plus a maintenance branch for owner status-management demos.
+
+| Code | City | Status |
+| --- | --- | --- |
+| `HCM-Q1` | Ho Chi Minh City | `active` |
+| `HCM-Q7` | Ho Chi Minh City | `active` |
+| `HAN-HK` | Hanoi | `active` |
+| `HCM-TD` | Ho Chi Minh City | `maintenance` |
+| `DAN-HC` | Da Nang | `active` |
+| `DAN-MK` | Da Nang | `active` |
+| `DAN-NHS` | Da Nang | `active` |
+
+## Services
+
+Base service data includes facial, body, nail, and archived/demo services.
+Service presentation seeding then:
+
+- updates selected service names, slugs, descriptions, prices, durations, and image URLs
+- creates additional presentation services for massage and package offerings
+
+Service statuses include:
+
+```text
+draft
+active
+inactive
+archived
+```
+
+## Branch Setup
+
+`BranchSetupSeeder` creates:
+
+- opening hours for each branch
+- branch-staff assignments
+- branch-service mappings
+- booking slot configs
+
+Default opening and slot config behavior:
+
+| Day | Time Range | Slot Step | Max Bookings |
+| --- | --- | --- | --- |
+| Monday to Saturday | 09:00-20:00 | 60 minutes | 3 |
+| Sunday | 10:00-17:00 | 60 minutes | 2 |
+
+All base services are enabled at all seeded branches unless later changed.
+
+## Demo Business Data
+
+The seeders create data for these modules:
+
+- bookings in several statuses
+- invoices and payments
+- published reviews
+- customer health records
+- branch inventory and transactions
+- active and draft promotions
+- discount codes such as `WELCOME2026` and `Q1FIRST`
+- treatment courses and sessions
+- guest conversations and staff replies
+- complaints
+- schedule requests and active staff schedules
+- performance data for ranking and revenue reports
+
+## Sequence
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant App as App #1
-  participant SS as SeederService #2
-  participant DB as Database #3
+  participant App as Nest Application
+  participant Seeder as SeederService
+  participant DB as PostgreSQL
 
-  #1: App - The NestJS application that triggers seeding after all modules are initialized.
-  #2: SeederService - Runs each seed method in order on application bootstrap.
-  #3: Database - PostgreSQL database that stores the seeded records.
-
-  #1: App->>+SS: onApplicationBootstrap()
-  Note over SS: Skips entirely if NODE_ENV=production
-
-  #2: SS->>+DB: findOne({ where: { email } }) — check owner exists
-  alt Owner does not exist
-    DB-->>SS: null
-    SS->>DB: save(owner account)
-    DB-->>SS: saved
-  else Owner already exists
-    DB-->>-SS: existing record — skip
+  App->>Seeder: onApplicationBootstrap()
+  alt NODE_ENV is production
+    Seeder-->>App: skip seeding
+  else non-production
+    Seeder->>DB: seed users and branches
+    Seeder->>DB: seed services and presentation data
+    Seeder->>DB: seed branch setup
+    Seeder->>DB: seed bookings and operations data
+    Seeder->>DB: seed reports/demo history
+    Seeder-->>App: complete
   end
-
-  #2: SS->>+DB: findOne per customer email — check each exists
-  alt Customer does not exist
-    DB-->>SS: null
-    SS->>DB: save(customer)
-    DB-->>SS: saved
-  else Already exists
-    DB-->>-SS: existing record — skip
-  end
-
-  #2: SS->>+DB: findOne per staff email — check each exists
-  alt Staff does not exist
-    DB-->>SS: null
-    SS->>DB: save(staff)
-    DB-->>SS: saved
-  else Already exists
-    DB-->>-SS: existing record — skip
-  end
-
-  #2: SS->>+DB: findOne per branch code — check each exists
-  alt Branch does not exist
-    DB-->>SS: null
-    SS->>DB: save(branch)
-    DB-->>SS: saved
-  else Already exists
-    DB-->>-SS: existing record — skip
-  end
-
-  #2: SS->>+DB: findOne per service code — check each exists
-  alt Service does not exist
-    DB-->>SS: null
-    SS->>DB: save(service)
-    DB-->>SS: saved
-  else Already exists
-    DB-->>-SS: existing record — skip
-  end
-
-  SS-->>-App: Seeding complete
 ```
-
-## Seeded Data
-
-### Owner Account
-
-The owner account is the only admin user and must exist before any branch or service can be created via the API. Credentials are hardcoded in the seeder for development convenience.
-
-| Field     | Value                  |
-|-----------|------------------------|
-| Full name | System Owner           |
-| Email     | owner@gmail.com        |
-| Password  | 12345678qwerty         |
-| Role      | `owner`                |
-| Status    | `active`               |
-
-> ⚠️ Change these credentials before deploying to any shared or production environment.
-
----
-
-### Customers
-
-5 dummy customer accounts for testing booking flows and customer-facing features. All share the same password.
-
-| Full Name       | Email                    | Phone       | Gender |
-|-----------------|--------------------------|-------------|--------|
-| Nguyen Thi Lan  | lan.nguyen@gmail.com     | 0901111001  | Female |
-| Tran Van Minh   | minh.tran@gmail.com      | 0901111002  | Male   |
-| Le Thi Hoa      | hoa.le@gmail.com         | 0901111003  | Female |
-| Pham Quoc Bao   | bao.pham@gmail.com       | 0901111004  | Male   |
-| Hoang Thi Mai   | mai.hoang@gmail.com      | 0901111005  | Female |
-
-**Password:** `Customer123!`
-
----
-
-### Staff
-
-3 dummy staff accounts for testing staff assignment and scheduling features.
-
-| Full Name       | Email                      | Phone       | Gender |
-|-----------------|----------------------------|-------------|--------|
-| Vo Thi Thu      | thu.vo@aura-spa.com        | 0902222001  | Female |
-| Nguyen Van Duc  | duc.nguyen@aura-spa.com    | 0902222002  | Male   |
-| Tran Thi Bich   | bich.tran@aura-spa.com     | 0902222003  | Female |
-
-**Password:** `Staff123!`
-
----
-
-### Branches
-
-3 branches across Ho Chi Minh City and Hanoi.
-
-| Code    | Name                   | City              | District   | Phone       |
-|---------|------------------------|-------------------|------------|-------------|
-| HCM-Q1  | Aura Spa – Quận 1      | Ho Chi Minh City  | Quan 1     | 0283001001  |
-| HCM-Q7  | Aura Spa – Quận 7      | Ho Chi Minh City  | Quan 7     | 0283001002  |
-| HAN-HK  | Aura Spa – Hoàn Kiếm   | Hanoi             | Hoan Kiem  | 0243001001  |
-
-All branches are seeded with status `active`.
-
----
-
-### Services
-
-5 services across 3 categories.
-
-| Code            | Name                      | Category | Duration | Price (VND) | Multi-session | Sessions |
-|-----------------|---------------------------|----------|----------|-------------|---------------|----------|
-| SVC-FACIAL-001  | Chăm sóc da mặt cơ bản   | Facial   | 60 min   | 350,000     | No            | —        |
-| SVC-FACIAL-002  | Trị liệu da chuyên sâu   | Facial   | 90 min   | 650,000     | Yes           | 5        |
-| SVC-BODY-001    | Massage body thư giãn    | Body     | 90 min   | 500,000     | No            | —        |
-| SVC-BODY-002    | Tắm trắng toàn thân      | Body     | 120 min  | 800,000     | Yes           | 10       |
-| SVC-NAIL-001    | Làm nail cơ bản          | Nail     | 45 min   | 200,000     | No            | —        |
-
-All services are seeded with status `active`.
