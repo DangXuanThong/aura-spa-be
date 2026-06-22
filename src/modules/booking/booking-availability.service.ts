@@ -4,7 +4,10 @@ import { Repository } from 'typeorm';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { Booking } from './entities/booking.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
+import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { BookingStatus } from './enums/booking-status.enum';
+import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
+import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
 import { AvailableSlotsResponseDto, TimeSlotDto } from './dto/available-slots-response.dto';
 
 const CANCELLED_STATUSES = [BookingStatus.Cancelled, BookingStatus.NoShow, BookingStatus.Rescheduled, BookingStatus.Transferred];
@@ -36,10 +39,12 @@ export class BookingAvailabilityService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchServiceEntity)
     private readonly branchServiceRepo: Repository<BranchServiceEntity>,
+    @InjectRepository(ScheduleRequest)
+    private readonly scheduleRequestRepo: Repository<ScheduleRequest>,
   ) {}
 
   // UC09 — Search Branch & Service: check available booking slots for planning a visit
-  async getAvailableSlots(branchId: string, serviceId: string, date: string): Promise<AvailableSlotsResponseDto> {
+  async getAvailableSlots(branchId: string, serviceId: string, date: string, technicianId?: string): Promise<AvailableSlotsResponseDto> {
     const targetDate = new Date(`${date}T12:00:00+07:00`); // noon local time avoids DST edge cases
     const dayOfWeek = targetDate.getDay(); // 0 = Sunday
 
@@ -91,16 +96,42 @@ export class BookingAvailabilityService {
 
       const overlapping = dayBookings.filter((b) => b.startTime < slotEnd && b.endTime > slotStart);
       const remaining = Math.max(0, slotConfig.maxBookings - overlapping.length);
+      const technicianAvailable = technicianId
+        ? await this.isTechnicianAvailable(technicianId, branchId, slotStart, slotEnd)
+        : true;
 
       slots.push({
         startTime: minutesToTimeStr(t),
         endTime: minutesToTimeStr(t + durationMinutes),
-        available: remaining > 0,
+        available: remaining > 0 && technicianAvailable,
         remainingCapacity: remaining,
         maxCapacity: slotConfig.maxBookings,
       });
     }
 
     return { branchId, serviceId, date, serviceDurationMinutes: durationMinutes, slots };
+  }
+
+  private async isTechnicianAvailable(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<boolean> {
+    const shiftCount = await this.scheduleRequestRepo
+      .createQueryBuilder('sr')
+      .where('sr.staffId = :technicianId', { technicianId })
+      .andWhere('sr.branchId = :branchId', { branchId })
+      .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+      .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+      .andWhere('sr.requestedStart <= :start', { start: startTime })
+      .andWhere('sr.requestedEnd >= :end', { end: endTime })
+      .getCount();
+    if (shiftCount === 0) return false;
+
+    const overlapCount = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.technicianId = :technicianId', { technicianId })
+      .andWhere('b.startTime < :endTime', { endTime })
+      .andWhere('b.endTime > :startTime', { startTime })
+      .andWhere('b.status NOT IN (:...cancelled)', { cancelled: CANCELLED_STATUSES })
+      .getCount();
+
+    return overlapCount === 0;
   }
 }

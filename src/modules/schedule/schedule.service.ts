@@ -87,13 +87,14 @@ export class ScheduleService {
     const excluded = [BookingStatus.Cancelled, BookingStatus.Rescheduled, BookingStatus.Transferred];
 
     const [shifts, bookings] = await Promise.all([
-      this.staffScheduleRepo
-        .createQueryBuilder('ss')
-        .where('ss.staffId = :staffId', { staffId })
-        .andWhere('ss.status = :status', { status: ScheduleStatus.Active })
-        .andWhere('ss.startTime < :toDate', { toDate })
-        .andWhere('ss.endTime > :fromDate', { fromDate })
-        .orderBy('ss.startTime', 'ASC')
+      this.scheduleRequestRepo
+        .createQueryBuilder('sr')
+        .where('sr.staffId = :staffId', { staffId })
+        .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+        .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+        .andWhere('sr.requestedStart < :toDate', { toDate })
+        .andWhere('sr.requestedEnd > :fromDate', { fromDate })
+        .orderBy('sr.requestedStart', 'ASC')
         .getMany(),
       this.bookingRepo
         .createQueryBuilder('b')
@@ -117,17 +118,25 @@ export class ScheduleService {
     }
 
     for (const shift of shifts) {
-      const key = shift.startTime.toISOString().slice(0, 10);
-      const day = dayMap.get(key);
-      if (!day) continue;
-      const dto = new StaffShiftResponseDto();
-      dto.id = shift.id;
-      dto.branchId = shift.branchId;
-      dto.scheduleType = shift.scheduleType;
-      dto.status = shift.status;
-      dto.startTime = shift.startTime;
-      dto.endTime = shift.endTime;
-      day.shifts.push(dto);
+      for (const [key, day] of dayMap) {
+        const dayStart = new Date(`${key}T00:00:00.000Z`);
+        const dayEnd = new Date(`${key}T23:59:59.999Z`);
+        if (shift.requestedStart >= dayEnd || shift.requestedEnd <= dayStart) continue;
+
+        const startTime = new Date(dayStart);
+        startTime.setUTCHours(shift.requestedStart.getUTCHours(), shift.requestedStart.getUTCMinutes(), 0, 0);
+        const endTime = new Date(dayStart);
+        endTime.setUTCHours(shift.requestedEnd.getUTCHours(), shift.requestedEnd.getUTCMinutes(), 0, 0);
+
+        const dto = new StaffShiftResponseDto();
+        dto.id = shift.id;
+        dto.branchId = shift.branchId;
+        dto.scheduleType = REQUEST_TYPE_TO_SCHEDULE_TYPE[shift.requestType];
+        dto.status = ScheduleStatus.Active;
+        dto.startTime = startTime < shift.requestedStart ? shift.requestedStart : startTime;
+        dto.endTime = endTime > shift.requestedEnd ? shift.requestedEnd : endTime;
+        day.shifts.push(dto);
+      }
     }
 
     for (const booking of bookings) {
