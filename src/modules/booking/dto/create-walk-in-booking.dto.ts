@@ -2,10 +2,20 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateWalkInBookingDto {
-  @ApiProperty({ example: '42', description: 'Customer to book for' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ example: '42', description: 'Existing customer to book for. Optional when customerName and customerPhone are provided.' })
+  @IsOptional()
   @IsString()
-  customerId!: string;
+  customerId?: string;
+
+  @ApiPropertyOptional({ example: 'Nguyen Van A', description: 'Walk-in customer name. Used to create a quick customer account when customerId is not provided.' })
+  @IsOptional()
+  @IsString()
+  customerName?: string;
+
+  @ApiPropertyOptional({ example: '0912345678', description: 'Walk-in customer phone. Used to find or create a customer account.' })
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
 
   @ApiProperty({ example: '1', description: 'Branch where the walk-in is being served' })
   @IsNotEmpty()
