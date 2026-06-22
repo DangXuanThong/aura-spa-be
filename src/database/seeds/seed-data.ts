@@ -36,6 +36,9 @@ export const STAFF = [
   { fullName: 'Tran Thi Bich', email: 'bich.tran@aura-spa.com', phone: '0902222003', gender: Gender.Female },
   // Second technician at HCM-Q1 (UC28 reassign demo)
   { fullName: 'Pham Van Long', email: 'long.pham@aura-spa.com', phone: '0902222004', gender: Gender.Male },
+  { fullName: 'Nguyen Hoai An', email: 'an.nguyen.dn@aura-spa.com', phone: '0902222005', gender: Gender.Female },
+  { fullName: 'Le Thanh Thuy', email: 'thuy.le.dn@aura-spa.com', phone: '0902222006', gender: Gender.Female },
+  { fullName: 'Tran Minh Khoa', email: 'khoa.tran.dn@aura-spa.com', phone: '0902222007', gender: Gender.Male },
 ];
 
 // Managers — one per branch, role UserRole.Manager
@@ -43,6 +46,7 @@ export const MANAGERS = [
   { fullName: 'Nguyen Thi Huong', email: 'huong.manager@aura-spa.com', phone: '0902333001', gender: Gender.Female },
   { fullName: 'Tran Van Khanh', email: 'khanh.manager@aura-spa.com', phone: '0902333002', gender: Gender.Male },
   { fullName: 'Le Thi Phuong', email: 'phuong.manager@aura-spa.com', phone: '0902333003', gender: Gender.Female },
+  { fullName: 'Dang Minh Dung', email: 'dung.manager.dn@aura-spa.com', phone: '0902333004', gender: Gender.Male },
 ];
 
 // ── Branches ──────────────────────────────────────────────────────────────────
@@ -212,12 +216,18 @@ export const STAFF_ASSIGNMENTS = [
   { email: 'thu.vo@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-001', position: StaffPosition.Technician },
   { email: 'duc.nguyen@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'STF-HCM-Q7-001', position: StaffPosition.Technician },
   { email: 'bich.tran@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'STF-HAN-HK-001', position: StaffPosition.Technician },
+  { email: 'an.nguyen.dn@aura-spa.com', branchCode: 'DAN-HC', staffCode: 'STF-DAN-HC-001', position: StaffPosition.Technician },
+  { email: 'thuy.le.dn@aura-spa.com', branchCode: 'DAN-MK', staffCode: 'STF-DAN-MK-001', position: StaffPosition.Technician },
+  { email: 'khoa.tran.dn@aura-spa.com', branchCode: 'DAN-NHS', staffCode: 'STF-DAN-NHS-001', position: StaffPosition.Technician },
   // Second technician at HCM-Q1 (UC28 reassign demo)
   { email: 'long.pham@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-002', position: StaffPosition.Technician },
   // Managers (UC26–31)
   { email: 'huong.manager@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'MGR-HCM-Q1-001', position: StaffPosition.Manager },
   { email: 'khanh.manager@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'MGR-HCM-Q7-001', position: StaffPosition.Manager },
   { email: 'phuong.manager@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'MGR-HAN-HK-001', position: StaffPosition.Manager },
+  { email: 'dung.manager.dn@aura-spa.com', branchCode: 'DAN-HC', staffCode: 'MGR-DAN-HC-001', position: StaffPosition.Manager },
+  { email: 'dung.manager.dn@aura-spa.com', branchCode: 'DAN-MK', staffCode: 'MGR-DAN-MK-001', position: StaffPosition.Manager },
+  { email: 'dung.manager.dn@aura-spa.com', branchCode: 'DAN-NHS', staffCode: 'MGR-DAN-NHS-001', position: StaffPosition.Manager },
 ];
 
 // ── Bookings ──────────────────────────────────────────────────────────────────
@@ -657,6 +667,48 @@ export const SCHEDULE_DEFS = [
         requestedEnd: slotAt(7, 18),
         status: ApprovalStatus.Approved,
         reason: 'Ca làm việc tuần này',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
+  {
+    staffEmail: 'an.nguyen.dn@aura-spa.com',
+    branchCode: 'DAN-HC',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca lam viec tuan nay',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
+  {
+    staffEmail: 'thuy.le.dn@aura-spa.com',
+    branchCode: 'DAN-MK',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca lam viec tuan nay',
+        shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
+      },
+    ],
+  },
+  {
+    staffEmail: 'khoa.tran.dn@aura-spa.com',
+    branchCode: 'DAN-NHS',
+    requests: [
+      {
+        requestType: ScheduleRequestType.WorkShift,
+        requestedStart: slotAt(0, 8),
+        requestedEnd: slotAt(7, 18),
+        status: ApprovalStatus.Approved,
+        reason: 'Ca lam viec tuan nay',
         shiftDays: [0, 1, 2, 3, 4, 5, 6, 7],
       },
     ],

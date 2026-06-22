@@ -35,6 +35,10 @@ import { UserService } from 'src/modules/user/user.service';
 import { UserStatus } from 'src/modules/user/enums/user-status.enum';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
+import { Payment } from 'src/modules/payment/entities/payment.entity';
+import { PaymentMethod } from 'src/modules/payment/enums/payment-method.enum';
+import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
+import { PaymentType } from 'src/modules/payment/enums/payment-type.enum';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -67,6 +71,8 @@ export class BookingService {
     private readonly discountCodeRepo: Repository<DiscountCode>,
     @InjectRepository(Promotion)
     private readonly promotionRepo: Repository<Promotion>,
+    @InjectRepository(Payment)
+    private readonly paymentRepo: Repository<Payment>,
     private readonly userService: UserService,
   ) {}
 
@@ -89,6 +95,7 @@ export class BookingService {
 
     const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
     const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
+    const depositAmount = Math.round(unitPrice * 0.1);
 
     // 3. Compute start/end times
     const startTime = new Date(dto.startTime);
@@ -124,7 +131,7 @@ export class BookingService {
       throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
     }
 
-    // 7. Create booking
+    // 7. Create booking. Online appointments are held until the customer pays the deposit.
     const booking = await this.bookingRepo.save(
       this.bookingRepo.create({
         customerId,
@@ -132,11 +139,11 @@ export class BookingService {
         technicianId,
         startTime,
         endTime,
-        status: BookingStatus.Confirmed,
+        status: BookingStatus.PendingPayment,
         source: BookingSource.Online,
         subtotalAmount: unitPrice,
         discountAmount: 0,
-        depositRequiredAmount: 0,
+        depositRequiredAmount: depositAmount,
         paidAmount: 0,
         remainingAmount: unitPrice,
         notes: dto.notes ?? null,
@@ -158,6 +165,50 @@ export class BookingService {
     );
 
     return booking;
+  }
+
+  async payDeposit(id: string, customerId: string, paymentMethod: PaymentMethod = PaymentMethod.EWallet): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
+    if (booking.status !== BookingStatus.PendingPayment) {
+      throw new BadRequestException('Only bookings waiting for deposit can be paid');
+    }
+
+    const depositAmount = parseFloat(booking.depositRequiredAmount as unknown as string);
+    if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
+      throw new BadRequestException('This booking does not require a deposit');
+    }
+
+    const paidAmount = parseFloat(booking.paidAmount as unknown as string);
+    const subtotalAmount = parseFloat(booking.subtotalAmount as unknown as string);
+    const discountAmount = parseFloat(booking.discountAmount as unknown as string);
+    const totalAfterDiscount = Math.max(0, subtotalAmount - discountAmount);
+    const nextPaidAmount = Math.min(totalAfterDiscount, paidAmount + depositAmount);
+    const nextRemainingAmount = Math.max(0, totalAfterDiscount - nextPaidAmount);
+
+    await this.paymentRepo.save(
+      this.paymentRepo.create({
+        invoiceId: null,
+        bookingId: booking.id,
+        customerId: booking.customerId,
+        branchId: booking.branchId,
+        paymentType: PaymentType.Deposit,
+        paymentMethod,
+        status: PaymentStatus.Paid,
+        amount: depositAmount,
+        paidAt: new Date(),
+        receivedBy: null,
+      }),
+    );
+
+    await this.bookingRepo.update(id, {
+      status: BookingStatus.Confirmed,
+      paidAmount: nextPaidAmount,
+      remainingAmount: nextRemainingAmount,
+    });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
 
   // UC11 — Reschedule Appointment
@@ -687,11 +738,14 @@ export class BookingService {
 
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
     const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
+    const newDepositRequiredAmount =
+      booking.status === BookingStatus.PendingPayment ? Math.round((subtotal - discountAmount) * 0.1) : booking.depositRequiredAmount;
 
     // 13. Update booking with discount
     await this.bookingRepo.update(id, {
       discountCodeId: discountCode.id,
       discountAmount,
+      depositRequiredAmount: newDepositRequiredAmount,
       remainingAmount: newRemainingAmount,
     });
 

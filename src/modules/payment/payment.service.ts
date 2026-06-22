@@ -56,6 +56,37 @@ export class PaymentService {
 
     const existing = await this.invoiceRepo.findOne({ where: { bookingId: booking.id } });
     if (existing) {
+      const subtotal = parseFloat(booking.subtotalAmount as unknown as string);
+      const discountAmount = parseFloat(booking.discountAmount as unknown as string);
+      const paidAmount = parseFloat(booking.paidAmount as unknown as string);
+      const totalAmount = subtotal - discountAmount;
+      const remainingAmount = Math.max(0, totalAmount - paidAmount);
+      const syncedStatus =
+        remainingAmount <= 0 ? InvoiceStatus.Paid : paidAmount > 0 ? InvoiceStatus.PartiallyPaid : existing.status;
+
+      if (
+        parseFloat(existing.paidAmount as unknown as string) !== paidAmount ||
+        parseFloat(existing.remainingAmount as unknown as string) !== remainingAmount ||
+        parseFloat(existing.discountAmount as unknown as string) !== discountAmount ||
+        parseFloat(existing.totalAmount as unknown as string) !== totalAmount ||
+        existing.status !== syncedStatus
+      ) {
+        await this.invoiceRepo.update(existing.id, {
+          discountAmount,
+          totalAmount,
+          paidAmount,
+          remainingAmount,
+          status: syncedStatus,
+        });
+        Object.assign(existing, {
+          discountAmount,
+          totalAmount,
+          paidAmount,
+          remainingAmount,
+          status: syncedStatus,
+        });
+      }
+
       const items = await this.invoiceItemRepo.find({ where: { invoiceId: existing.id } });
       return Object.assign(existing, { items });
     }
@@ -84,13 +115,13 @@ export class PaymentService {
           bookingId: booking.id,
           customerId: booking.customerId,
           branchId: booking.branchId,
-          status: InvoiceStatus.Issued,
           subtotalAmount: subtotal,
           discountAmount,
           taxAmount: 0,
           totalAmount,
           paidAmount,
           remainingAmount,
+          status: remainingAmount <= 0 ? InvoiceStatus.Paid : paidAmount > 0 ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued,
           issuedAt: now,
           createdBy: staffId,
         }),
