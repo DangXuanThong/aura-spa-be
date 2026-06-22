@@ -187,14 +187,15 @@ export class BookingService {
 
     // 5. Validate new technician if provided (must be active staff at same branch)
     const newTechnicianId = dto.technicianId !== undefined ? dto.technicianId : booking.technicianId;
-    if (dto.technicianId) {
+    if (newTechnicianId) {
       const assignment = await this.branchStaffRepo.findOne({
-        where: { branchId: booking.branchId, userId: dto.technicianId, status: StaffStatus.Active },
+        where: { branchId: booking.branchId, userId: newTechnicianId, status: StaffStatus.Active },
       });
       if (!assignment) {
-        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${booking.branchId}`);
+        throw new NotFoundException(`Technician ${newTechnicianId} is not an active staff member at branch ${booking.branchId}`);
       }
-      await this.assertTechnicianScheduled(dto.technicianId, booking.branchId, newStartTime, newEndTime);
+      await this.assertTechnicianScheduled(newTechnicianId, booking.branchId, newStartTime, newEndTime);
+      await this.assertTechnicianAvailable(newTechnicianId, newStartTime, newEndTime, id);
     }
 
     // 6. Find slot config for the new date
@@ -319,6 +320,7 @@ export class BookingService {
         throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.targetBranchId}`);
       }
       await this.assertTechnicianScheduled(dto.technicianId, dto.targetBranchId, newStartTime, newEndTime);
+      await this.assertTechnicianAvailable(dto.technicianId, newStartTime, newEndTime, id);
     }
 
     // 9. Find slot config at target branch for the new date
@@ -539,6 +541,7 @@ export class BookingService {
     // 5a. Verify technician has an approved working shift covering this slot
     if (dto.technicianId) {
       await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+      await this.assertTechnicianAvailable(dto.technicianId, startTime, endTime);
     }
 
     // 6. Check slot capacity
@@ -748,6 +751,7 @@ export class BookingService {
     }
 
     await this.assertTechnicianScheduled(dto.newTechnicianId, booking.branchId, booking.startTime, booking.endTime);
+    await this.assertTechnicianAvailable(dto.newTechnicianId, booking.startTime, booking.endTime, id);
 
     await this.bookingRepo.update(id, { technicianId: dto.newTechnicianId });
 

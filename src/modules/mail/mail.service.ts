@@ -2,20 +2,27 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
 
+type MailDriver = 'console' | 'resend';
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
+  private readonly driver: MailDriver;
   private readonly resend: Resend | null;
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('RESEND_API_KEY');
-    this.resend = apiKey && !apiKey.includes('your_api_key_here') ? new Resend(apiKey) : null;
+    this.driver = this.resolveMailDriver();
+    this.resend = this.driver === 'resend' ? new Resend(this.configService.getOrThrow<string>('RESEND_API_KEY')) : null;
   }
 
   async sendOtpEmail(to: string, otp: string): Promise<void> {
-    if (!this.resend) {
-      this.logger.warn(`RESEND_API_KEY is not configured. OTP for ${to}: ${otp}`);
+    if (this.driver === 'console') {
+      this.logger.warn(`MAIL_DRIVER=console; OTP for ${to}: ${otp}`);
       return;
+    }
+
+    if (!this.resend) {
+      throw new Error('Resend mail driver is not initialized');
     }
 
     const fromName = this.configService.get<string>('MAIL_FROM_NAME', 'Aura Spa');
@@ -56,5 +63,21 @@ export class MailService {
         </p>
       </div>
     `;
+  }
+
+  private resolveMailDriver(): MailDriver {
+    const configuredDriver = this.configService.get<string>('MAIL_DRIVER');
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+
+    if (!configuredDriver) {
+      return nodeEnv === 'production' ? 'resend' : 'console';
+    }
+
+    const driver = configuredDriver.trim().toLowerCase();
+    if (driver === 'console' || driver === 'resend') {
+      return driver;
+    }
+
+    throw new Error(`Unsupported MAIL_DRIVER "${configuredDriver}". Use "console" or "resend".`);
   }
 }
