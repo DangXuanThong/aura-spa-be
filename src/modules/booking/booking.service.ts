@@ -224,7 +224,11 @@ export class BookingService {
       throw new BadRequestException('Only upcoming bookings with status pending_payment or confirmed can be rescheduled');
     }
 
-    // 3. New start time must be in the future
+    // 3. Existing and new appointment times must both still be in the future
+    if (new Date() >= booking.startTime) {
+      throw new BadRequestException('Cannot reschedule a booking that has already started');
+    }
+
     const newStartTime = new Date(dto.startTime);
     if (newStartTime <= new Date()) {
       throw new BadRequestException('New start time must be in the future');
@@ -286,7 +290,7 @@ export class BookingService {
         discountCodeId: booking.discountCodeId,
         startTime: newStartTime,
         endTime: newEndTime,
-        status: BookingStatus.Confirmed,
+        status: booking.status,
         source: booking.source,
         subtotalAmount: booking.subtotalAmount,
         discountAmount: booking.discountAmount,
