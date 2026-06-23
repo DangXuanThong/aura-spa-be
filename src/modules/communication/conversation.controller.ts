@@ -60,8 +60,8 @@ export class ConversationController {
   @ApiQuery({ name: 'branchId', type: String, required: false })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Staff or Owner role required' })
-  async findAll(@Request() req: any, @Query('status') status?: ConversationStatus, @Query('branchId') branchId?: string): Promise<ConversationResponseDto[]> {
-    const results = await this.conversationService.findAll(status, branchId, req.user.id, req.user.role);
+  async findAll(@Query('status') status?: ConversationStatus, @Query('branchId') branchId?: string): Promise<ConversationResponseDto[]> {
+    const results = await this.conversationService.findAll(status, branchId);
     return plainToInstance(ConversationResponseDto, results);
   }
 
@@ -72,8 +72,8 @@ export class ConversationController {
   @ApiOkResponse({ description: 'Conversation updated', type: ConversationResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Staff or Owner role required' })
-  async update(@Param('id') id: string, @Body() dto: UpdateConversationDto, @Request() req: any): Promise<ConversationResponseDto> {
-    const result = await this.conversationService.update(id, dto, req.user.id, req.user.role);
+  async update(@Param('id') id: string, @Body() dto: UpdateConversationDto): Promise<ConversationResponseDto> {
+    const result = await this.conversationService.update(id, dto);
     return plainToInstance(ConversationResponseDto, result);
   }
 
@@ -86,7 +86,7 @@ export class ConversationController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Staff or Owner role required' })
   async reply(@Param('id') id: string, @Body() dto: SendMessageDto, @Request() req: any): Promise<MessageResponseDto> {
-    const message = await this.conversationService.sendStaffReply(id, req.user.id, req.user.role, dto.message);
+    const message = await this.conversationService.sendStaffReply(id, req.user.id, dto.message);
     return plainToInstance(MessageResponseDto, message);
   }
 }

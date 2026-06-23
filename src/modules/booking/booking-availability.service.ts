@@ -4,9 +4,6 @@ import { Repository } from 'typeorm';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { Booking } from './entities/booking.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
-import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
-import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
-import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { BookingStatus } from './enums/booking-status.enum';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
@@ -42,8 +39,6 @@ export class BookingAvailabilityService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchServiceEntity)
     private readonly branchServiceRepo: Repository<BranchServiceEntity>,
-    @InjectRepository(BranchStaff)
-    private readonly branchStaffRepo: Repository<BranchStaff>,
     @InjectRepository(ScheduleRequest)
     private readonly scheduleRequestRepo: Repository<ScheduleRequest>,
   ) {}
@@ -103,7 +98,7 @@ export class BookingAvailabilityService {
       const remaining = Math.max(0, slotConfig.maxBookings - overlapping.length);
       const technicianAvailable = technicianId
         ? await this.isTechnicianAvailable(technicianId, branchId, slotStart, slotEnd)
-        : await this.hasAvailableTechnician(branchId, slotStart, slotEnd);
+        : true;
 
       slots.push({
         startTime: minutesToTimeStr(t),
@@ -115,25 +110,6 @@ export class BookingAvailabilityService {
     }
 
     return { branchId, serviceId, date, serviceDurationMinutes: durationMinutes, slots };
-  }
-
-  private async hasAvailableTechnician(branchId: string, startTime: Date, endTime: Date): Promise<boolean> {
-    const technicians = await this.branchStaffRepo.find({
-      where: {
-        branchId,
-        position: StaffPosition.Technician,
-        status: StaffStatus.Active,
-      },
-      order: { staffCode: 'ASC' },
-    });
-
-    for (const technician of technicians) {
-      if (await this.isTechnicianAvailable(technician.userId, branchId, startTime, endTime)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private async isTechnicianAvailable(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<boolean> {
