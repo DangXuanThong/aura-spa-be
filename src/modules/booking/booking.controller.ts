@@ -206,6 +206,18 @@ export class BookingController {
     return plainToInstance(BookingResponseDto, booking);
   }
 
+  @Get('branch/:branchId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Bookings for a branch, ordered by start time descending', type: [BookingResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff, manager, or owner access required for this branch' })
+  async findByBranch(@Param('branchId') branchId: string, @Request() req: any): Promise<BookingResponseDto[]> {
+    const bookings = await this.bookingService.findBranchBookings(branchId, req.user.id, req.user.role);
+    return plainToInstance(BookingResponseDto, bookings);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')

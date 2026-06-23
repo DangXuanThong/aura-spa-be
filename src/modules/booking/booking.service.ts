@@ -765,12 +765,29 @@ export class BookingService {
     const bookings = await this.bookingRepo.find({
       where: { customerId },
       order: { startTime: 'DESC' },
+      relations: ['customer', 'technician'],
+    });
+    return this.attachServices(bookings);
+  }
+
+  async findBranchBookings(branchId: string, requesterId: string, requesterRole: string): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
+    if (requesterRole !== UserRole.Owner) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, branchId, status: StaffStatus.Active },
+      });
+      if (!assignment) throw new ForbiddenException('You are not active at this branch');
+    }
+
+    const bookings = await this.bookingRepo.find({
+      where: { branchId },
+      order: { startTime: 'DESC' },
+      relations: ['customer', 'technician'],
     });
     return this.attachServices(bookings);
   }
 
   async findOne(id: string, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
-    const booking = await this.bookingRepo.findOne({ where: { id } });
+    const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
     const isOwner = requesterRole === UserRole.Owner || requesterRole === UserRole.Staff || requesterRole === UserRole.Manager;
@@ -903,7 +920,10 @@ export class BookingService {
   private async attachServices(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
     if (bookings.length === 0) return [];
     const ids = bookings.map((b) => b.id);
-    const allServices = await this.bookingServiceRepo.find({ where: { bookingId: In(ids) } });
+    const allServices = await this.bookingServiceRepo.find({
+      where: { bookingId: In(ids) },
+      relations: ['service'],
+    });
     const servicesByBooking = new Map<string, BookingServiceEntity[]>();
     for (const svc of allServices) {
       const list = servicesByBooking.get(svc.bookingId) ?? [];
