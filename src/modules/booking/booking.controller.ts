@@ -25,6 +25,7 @@ import { TransferBookingDto } from './dto/transfer-booking.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
 import { CreateWalkInBookingDto } from './dto/create-walk-in-booking.dto';
 import { ReassignTechnicianDto } from './dto/reassign-technician.dto';
+import { PayDepositDto } from './dto/pay-deposit.dto';
 import { AvailableSlotsResponseDto } from './dto/available-slots-response.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 
@@ -145,6 +146,20 @@ export class BookingController {
 
   // ── Staff: walk-in booking (UC19 — Create Walk-in Appointment) ─────────
 
+  @Post(':id/pay-deposit')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Deposit paid and booking confirmed', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required or booking does not belong to the caller' })
+  @ApiBadRequestResponse({ description: 'Booking is not waiting for deposit' })
+  async payDeposit(@Param('id') id: string, @Body() dto: PayDepositDto, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.payDeposit(id, req.user.id, dto.paymentMethod);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
+
   @Post('walk-in')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Staff)
@@ -189,6 +204,18 @@ export class BookingController {
   async reassignTechnician(@Param('id') id: string, @Body() dto: ReassignTechnicianDto, @Request() req: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.reassign(id, dto, req.user.id);
     return plainToInstance(BookingResponseDto, booking);
+  }
+
+  @Get('branch/:branchId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Bookings for a branch, ordered by start time descending', type: [BookingResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff, manager, or owner access required for this branch' })
+  async findByBranch(@Param('branchId') branchId: string, @Request() req: any): Promise<BookingResponseDto[]> {
+    const bookings = await this.bookingService.findBranchBookings(branchId, req.user.id, req.user.role);
+    return plainToInstance(BookingResponseDto, bookings);
   }
 
   @Get(':id')

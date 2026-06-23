@@ -128,21 +128,23 @@ export class ReportService {
   }
 
   private async queryByBranch(from: Date, to: Date): Promise<BranchRevenueSummaryDto[]> {
-    const rows = await this.bookingRepo
-      .createQueryBuilder('b')
-      .innerJoin(Branch, 'br', 'br.id = b.branchId')
-      .select('b.branchId', 'branchId')
-      .addSelect('br.name', 'branchName')
-      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'totalRevenue')
-      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
-      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Cancelled}' THEN 1 END)`, 'cancelledBookings')
-      .addSelect(`AVG(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount END)`, 'averageBookingValue')
-      .where('b.startTime >= :from', { from })
-      .andWhere('b.startTime <= :to', { to })
-      .groupBy('b.branchId')
-      .addGroupBy('br.name')
-      .orderBy('totalRevenue', 'DESC')
-      .getRawMany<Record<string, string>>();
+    const rows = (await this.bookingRepo.query(
+      `
+        SELECT
+          b.branch_id AS "branchId",
+          br.name AS "branchName",
+          COALESCE(SUM(CASE WHEN b.status = $3 THEN b.paid_amount ELSE 0 END), 0) AS "totalRevenue",
+          COUNT(CASE WHEN b.status = $3 THEN 1 END) AS "completedBookings",
+          COUNT(CASE WHEN b.status = $4 THEN 1 END) AS "cancelledBookings",
+          AVG(CASE WHEN b.status = $3 THEN b.paid_amount END) AS "averageBookingValue"
+        FROM bookings b
+        INNER JOIN branches br ON br.id = b.branch_id
+        WHERE b.start_time >= $1 AND b.start_time <= $2
+        GROUP BY b.branch_id, br.name
+        ORDER BY COALESCE(SUM(CASE WHEN b.status = $3 THEN b.paid_amount ELSE 0 END), 0) DESC
+      `,
+      [from, to, BookingStatus.Completed, BookingStatus.Cancelled],
+    )) as Record<string, string>[];
 
     return rows.map((r) => ({
       branchId: r.branchId,
@@ -264,22 +266,24 @@ export class ReportService {
   }
 
   async getBranchRankings(from: Date, to: Date, limit: number): Promise<BranchRankingsDto> {
-    const rows = await this.bookingRepo
-      .createQueryBuilder('b')
-      .innerJoin(Branch, 'br', 'br.id = b.branchId')
-      .select('b.branchId', 'branchId')
-      .addSelect('br.name', 'branchName')
-      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'totalRevenue')
-      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
-      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Cancelled}' THEN 1 END)`, 'cancelledBookings')
-      .addSelect(`AVG(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount END)`, 'averageBookingValue')
-      .where('b.startTime >= :from', { from })
-      .andWhere('b.startTime <= :to', { to })
-      .groupBy('b.branchId')
-      .addGroupBy('br.name')
-      .orderBy('totalRevenue', 'DESC')
-      .limit(limit)
-      .getRawMany<Record<string, string>>();
+    const rows = (await this.bookingRepo.query(
+      `
+        SELECT
+          b.branch_id AS "branchId",
+          br.name AS "branchName",
+          COALESCE(SUM(CASE WHEN b.status = $3 THEN b.paid_amount ELSE 0 END), 0) AS "totalRevenue",
+          COUNT(CASE WHEN b.status = $3 THEN 1 END) AS "completedBookings",
+          COUNT(CASE WHEN b.status = $4 THEN 1 END) AS "cancelledBookings",
+          AVG(CASE WHEN b.status = $3 THEN b.paid_amount END) AS "averageBookingValue"
+        FROM bookings b
+        INNER JOIN branches br ON br.id = b.branch_id
+        WHERE b.start_time >= $1 AND b.start_time <= $2
+        GROUP BY b.branch_id, br.name
+        ORDER BY COALESCE(SUM(CASE WHEN b.status = $3 THEN b.paid_amount ELSE 0 END), 0) DESC
+        LIMIT $5
+      `,
+      [from, to, BookingStatus.Completed, BookingStatus.Cancelled, limit],
+    )) as Record<string, string>[];
 
     const rankings: BranchRankingItemDto[] = rows.map((r, i) => ({
       rank: i + 1,
