@@ -320,7 +320,7 @@ export const INVENTORY_ITEMS = [
     category: 'Facial',
     minStockLevel: 10,
     status: InventoryItemStatus.Active,
-    stockByBranch: { 'HCM-Q1': 25, 'HCM-Q7': 18, 'HAN-HK': 12 },
+    stockByBranch: { 'HCM-Q1': 25, 'HCM-Q7': 18, 'HAN-HK': 12, 'DAN-HC': 16, 'DAN-MK': 14, 'DAN-NHS': 14 },
   },
   {
     sku: 'INV-TONER-001',
@@ -329,7 +329,7 @@ export const INVENTORY_ITEMS = [
     category: 'Facial',
     minStockLevel: 8,
     status: InventoryItemStatus.Active,
-    stockByBranch: { 'HCM-Q1': 20, 'HCM-Q7': 15, 'HAN-HK': 10 },
+    stockByBranch: { 'HCM-Q1': 20, 'HCM-Q7': 15, 'HAN-HK': 10, 'DAN-HC': 13, 'DAN-MK': 12, 'DAN-NHS': 12 },
   },
   {
     sku: 'INV-OIL-001',
@@ -338,7 +338,7 @@ export const INVENTORY_ITEMS = [
     category: 'Body',
     minStockLevel: 5,
     status: InventoryItemStatus.Active,
-    stockByBranch: { 'HCM-Q1': 12, 'HCM-Q7': 10, 'HAN-HK': 8 },
+    stockByBranch: { 'HCM-Q1': 12, 'HCM-Q7': 10, 'HAN-HK': 8, 'DAN-HC': 9, 'DAN-MK': 8, 'DAN-NHS': 8 },
   },
   {
     sku: 'INV-NAIL-001',
@@ -347,8 +347,24 @@ export const INVENTORY_ITEMS = [
     category: 'Nail',
     minStockLevel: 20,
     status: InventoryItemStatus.Active,
-    stockByBranch: { 'HCM-Q1': 50, 'HCM-Q7': 40, 'HAN-HK': 35 },
+    stockByBranch: { 'HCM-Q1': 50, 'HCM-Q7': 40, 'HAN-HK': 35, 'DAN-HC': 36, 'DAN-MK': 34, 'DAN-NHS': 34 },
   },
+];
+
+export const SERVICE_INVENTORY_REQUIREMENTS = [
+  { serviceCode: 'SVC-FACIAL-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-FACIAL-001', itemSku: 'INV-TONER-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-FACIAL-002', itemSku: 'INV-SERUM-001', quantityPerService: 0.2 },
+  { serviceCode: 'SVC-FACIAL-002', itemSku: 'INV-TONER-001', quantityPerService: 0.15 },
+  { serviceCode: 'SVC-BODY-001', itemSku: 'INV-OIL-001', quantityPerService: 0.2 },
+  { serviceCode: 'SVC-BODY-002', itemSku: 'INV-TONER-001', quantityPerService: 0.2 },
+  { serviceCode: 'SVC-NAIL-001', itemSku: 'INV-NAIL-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-MASSAGE-002', itemSku: 'INV-OIL-001', quantityPerService: 0.15 },
+  { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-OIL-001', quantityPerService: 0.25 },
+  { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-TONER-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-PACKAGE-002', itemSku: 'INV-OIL-001', quantityPerService: 0.3 },
+  { serviceCode: 'SVC-PACKAGE-002', itemSku: 'INV-NAIL-001', quantityPerService: 0.1 },
 ];
 
 // ── Promotions (UC07) ─────────────────────────────────────────────────────────
