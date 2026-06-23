@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
@@ -7,6 +7,7 @@ import { CreateConversationDto } from './dto/create-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { ConversationStatus } from './enums/conversation-status.enum';
 import { SenderType } from './enums/sender-type.enum';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 
 @Injectable()
 export class ConversationService {
@@ -73,7 +74,7 @@ export class ConversationService {
   }
 
   // Staff-facing routes
-  async findAll(status?: ConversationStatus, branchId?: string): Promise<Conversation[]> {
+  async findAll(status?: ConversationStatus, branchId?: string, requesterId?: string, requesterRole?: UserRole): Promise<Conversation[]> {
     const query = this.conversationRepo.createQueryBuilder('c');
 
     if (status) {
@@ -84,17 +85,31 @@ export class ConversationService {
       query.andWhere('c.branchId = :branchId', { branchId });
     }
 
+    if (requesterRole === UserRole.Staff && requesterId) {
+      query.andWhere('(c.status = :openStatus OR c.assignedStaffId = :requesterId)', {
+        openStatus: ConversationStatus.Open,
+        requesterId,
+      });
+    }
+
     return query.orderBy('c.updatedAt', 'DESC').getMany();
   }
 
-  async update(id: string, dto: UpdateConversationDto): Promise<Conversation> {
+  async update(id: string, dto: UpdateConversationDto, requesterId: string, requesterRole: UserRole): Promise<Conversation> {
     const conversation = await this.findOne(id);
+    this.assertCanHandleConversation(conversation, requesterId, requesterRole);
+
+    if (requesterRole === UserRole.Staff && dto.assignedStaffId && dto.assignedStaffId !== requesterId) {
+      throw new ForbiddenException('Staff can only assign a conversation to themselves');
+    }
+
     Object.assign(conversation, dto);
     return this.conversationRepo.save(conversation);
   }
 
-  async sendStaffReply(conversationId: string, staffUserId: string, text: string): Promise<Message> {
+  async sendStaffReply(conversationId: string, staffUserId: string, staffRole: UserRole, text: string): Promise<Message> {
     const conversation = await this.findOne(conversationId);
+    this.assertCanHandleConversation(conversation, staffUserId, staffRole);
 
     if (conversation.status === ConversationStatus.Open) {
       conversation.status = ConversationStatus.Assigned;
@@ -111,5 +126,15 @@ export class ConversationService {
         attachments: null,
       }),
     );
+  }
+
+  private assertCanHandleConversation(conversation: Conversation, requesterId: string, requesterRole: UserRole): void {
+    if (requesterRole === UserRole.Owner) return;
+
+    if (conversation.status === ConversationStatus.Open) return;
+
+    if (conversation.assignedStaffId === requesterId) return;
+
+    throw new ForbiddenException('This conversation is already assigned to another staff member');
   }
 }

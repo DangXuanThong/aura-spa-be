@@ -9,6 +9,13 @@ export class BookingServiceItemDto {
   @ApiProperty({ example: '2' })
   serviceId!: string;
 
+  @ApiPropertyOptional({ example: { id: '2', name: 'Massage Thụy Điển Cổ Điển', category: 'Massage' } })
+  service?: {
+    id: string;
+    name: string;
+    category: string | null;
+  };
+
   @ApiProperty({ example: 1 })
   quantity!: number;
 
@@ -67,6 +74,22 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ example: 'Please use fragrance-free products.' })
   notes!: string | null;
+
+  @ApiPropertyOptional({ example: { id: '42', fullName: 'Nguyễn Thị Lan', phone: '0901111001', email: 'lan.nguyen@gmail.com' } })
+  customer?: {
+    id: string;
+    fullName: string;
+    phone: string | null;
+    email: string | null;
+  };
+
+  @ApiPropertyOptional({ example: { id: '7', fullName: 'Võ Thị Thu', phone: '0902222001', email: 'thu.vo@aura-spa.com' } })
+  technician?: {
+    id: string;
+    fullName: string;
+    phone: string | null;
+    email: string | null;
+  } | null;
 
   @ApiProperty({ type: [BookingServiceItemDto] })
   services!: BookingServiceItemDto[];
