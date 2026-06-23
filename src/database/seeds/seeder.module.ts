@@ -16,7 +16,6 @@ import { Review } from 'src/modules/review/entities/review.entity';
 import { HealthRecord } from 'src/modules/health/entities/health-record.entity';
 import { InventoryItem } from 'src/modules/inventory/entities/inventory-item.entity';
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
-import { ServiceInventoryRequirement } from 'src/modules/inventory/entities/service-inventory-requirement.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
@@ -60,7 +59,6 @@ import { PerformanceDataSeeder } from './performance-data.seeder';
       HealthRecord,
       InventoryItem,
       BranchInventory,
-      ServiceInventoryRequirement,
       Promotion,
       DiscountCode,
       TreatmentCourse,

@@ -84,7 +84,7 @@ export class ScheduleService {
     const fromDate = new Date(`${from}T00:00:00.000Z`);
     const toDate = new Date(`${to}T23:59:59.999Z`);
 
-    const excluded = [BookingStatus.PendingPayment, BookingStatus.Cancelled, BookingStatus.Rescheduled, BookingStatus.Transferred];
+    const excluded = [BookingStatus.Cancelled, BookingStatus.Rescheduled, BookingStatus.Transferred];
 
     const [shifts, bookings] = await Promise.all([
       this.scheduleRequestRepo
