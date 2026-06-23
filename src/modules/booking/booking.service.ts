@@ -9,8 +9,6 @@ import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
-import { ScheduleType } from 'src/modules/schedule/enums/schedule-type.enum';
-import { ScheduleStatus } from 'src/modules/schedule/enums/schedule-status.enum';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
 import { BookingStatus } from './enums/booking-status.enum';
@@ -241,16 +239,7 @@ export class BookingService {
     const newEndTime = new Date(newStartTime.getTime() + bookingSvc.durationMinutes * 60 * 1000);
 
     // 5. Validate new technician if provided (must be active staff at same branch)
-    const newTechnicianId = dto.technicianId !== undefined ? dto.technicianId : booking.technicianId;
-    if (dto.technicianId) {
-      const assignment = await this.branchStaffRepo.findOne({
-        where: { branchId: booking.branchId, userId: dto.technicianId, status: StaffStatus.Active },
-      });
-      if (!assignment) {
-        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${booking.branchId}`);
-      }
-      await this.assertTechnicianScheduled(dto.technicianId, booking.branchId, newStartTime, newEndTime);
-    }
+    const newTechnicianId = await this.resolveTechnician(booking.branchId, dto.technicianId, new Date(dto.startTime), newEndTime);
 
     // 6. Find slot config for the new date
     const targetDate = newStartTime.toISOString().slice(0, 10);
@@ -367,13 +356,7 @@ export class BookingService {
 
     // 8. Validate technician at target branch if provided
     if (dto.technicianId) {
-      const assignment = await this.branchStaffRepo.findOne({
-        where: { branchId: dto.targetBranchId, userId: dto.technicianId, status: StaffStatus.Active },
-      });
-      if (!assignment) {
-        throw new NotFoundException(`Technician ${dto.technicianId} is not an active staff member at branch ${dto.targetBranchId}`);
-      }
-      await this.assertTechnicianScheduled(dto.technicianId, dto.targetBranchId, newStartTime, newEndTime);
+      await this.resolveTechnician(dto.targetBranchId, dto.technicianId, newStartTime, newEndTime);
     }
 
     // 9. Find slot config at target branch for the new date
@@ -593,7 +576,7 @@ export class BookingService {
 
     // 5a. Verify technician has an approved working shift covering this slot
     if (dto.technicianId) {
-      await this.assertTechnicianScheduled(dto.technicianId, dto.branchId, startTime, endTime);
+      await this.resolveTechnician(dto.branchId, dto.technicianId, startTime, endTime);
     }
 
     // 6. Check slot capacity
@@ -822,7 +805,7 @@ export class BookingService {
       throw new NotFoundException(`Technician ${dto.newTechnicianId} is not an active staff member at this branch`);
     }
 
-    await this.assertTechnicianScheduled(dto.newTechnicianId, booking.branchId, booking.startTime, booking.endTime);
+    await this.resolveTechnician(booking.branchId, dto.newTechnicianId, booking.startTime, booking.endTime);
 
     await this.bookingRepo.update(id, { technicianId: dto.newTechnicianId });
 
