@@ -174,18 +174,37 @@ export class ScheduleService {
     return requests.map((r) => Object.assign(r, { staffFullName: r.staff?.fullName ?? '', staffEmail: r.staff?.email ?? null }));
   }
 
+  // Owner: List all pending schedule requests system-wide
+  async listAllPending(): Promise<(ScheduleRequest & { staffFullName: string; staffEmail: string | null; branchName: string })[]> {
+    const requests = await this.scheduleRequestRepo.find({
+      where: { status: ApprovalStatus.Pending },
+      relations: ['staff', 'branch'],
+      order: { requestedStart: 'ASC' },
+    });
+
+    return requests.map((r) =>
+      Object.assign(r, {
+        staffFullName: r.staff?.fullName ?? '',
+        staffEmail: r.staff?.email ?? null,
+        branchName: r.branch?.name ?? '',
+      }),
+    );
+  }
+
   // UC26 — Approve a schedule request and create the corresponding shift
-  async approve(id: string, managerId: string): Promise<ScheduleRequest> {
+  async approve(id: string, reviewerId: string, role?: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
     if (request.status !== ApprovalStatus.Pending) {
       throw new BadRequestException('Only pending requests can be approved');
     }
 
-    await this.assertManagerAtBranch(managerId, request.branchId);
+    if (role !== 'owner') {
+      await this.assertManagerAtBranch(reviewerId, request.branchId);
+    }
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: reviewerId, reviewedAt: now });
 
     await this.staffScheduleRepo.save(
       this.staffScheduleRepo.create({
@@ -196,7 +215,7 @@ export class ScheduleService {
         scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
         status: ScheduleStatus.Active,
         sourceRequestId: request.id,
-        createdBy: managerId,
+        createdBy: reviewerId,
       }),
     );
 
@@ -204,17 +223,19 @@ export class ScheduleService {
   }
 
   // UC26 — Reject a schedule request
-  async reject(id: string, managerId: string): Promise<ScheduleRequest> {
+  async reject(id: string, reviewerId: string, role?: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
     if (request.status !== ApprovalStatus.Pending) {
       throw new BadRequestException('Only pending requests can be rejected');
     }
 
-    await this.assertManagerAtBranch(managerId, request.branchId);
+    if (role !== 'owner') {
+      await this.assertManagerAtBranch(reviewerId, request.branchId);
+    }
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: reviewerId, reviewedAt: now });
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }

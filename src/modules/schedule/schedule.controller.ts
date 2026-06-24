@@ -73,6 +73,18 @@ export class ScheduleController {
     return plainToInstance(ScheduleRequestResponseDto, requests);
   }
 
+  // ── Owner: list all pending schedule requests system-wide ──────────────
+
+  @Get('all-pending')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'All pending schedule requests across all branches', type: [ScheduleRequestManagerResponseDto] })
+  async listAllPending(): Promise<ScheduleRequestManagerResponseDto[]> {
+    const requests = await this.scheduleService.listAllPending();
+    return plainToInstance(ScheduleRequestManagerResponseDto, requests);
+  }
+
   // ── Manager: list branch requests (UC26 — Assign Shifts) ────────────────
 
   @Get('branch/:branchId')
@@ -96,7 +108,7 @@ export class ScheduleController {
 
   @Patch(':id/approve')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Manager)
+  @Roles(UserRole.Manager, UserRole.Owner)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Request approved and shift created', type: ScheduleRequestResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -104,7 +116,7 @@ export class ScheduleController {
   @ApiBadRequestResponse({ description: 'Request is not pending' })
   @ApiNotFoundResponse({ description: 'Schedule request not found' })
   async approve(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
-    const request = await this.scheduleService.approve(id, req.user.id);
+    const request = await this.scheduleService.approve(id, req.user.id, req.user.role);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
@@ -112,7 +124,7 @@ export class ScheduleController {
 
   @Patch(':id/reject')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Manager)
+  @Roles(UserRole.Manager, UserRole.Owner)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Request rejected', type: ScheduleRequestResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -120,7 +132,7 @@ export class ScheduleController {
   @ApiBadRequestResponse({ description: 'Request is not pending' })
   @ApiNotFoundResponse({ description: 'Schedule request not found' })
   async reject(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
-    const request = await this.scheduleService.reject(id, req.user.id);
+    const request = await this.scheduleService.reject(id, req.user.id, req.user.role);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 

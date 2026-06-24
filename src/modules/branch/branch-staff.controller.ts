@@ -27,7 +27,7 @@ import { SlotConfigResponseDto } from './dto/slot-config-response.dto';
 @ApiTags('Branches')
 @Controller('branches')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.Manager)
+@Roles(UserRole.Manager, UserRole.Owner)
 @ApiBearerAuth('access-token')
 @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
 @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
@@ -42,7 +42,7 @@ export class BranchStaffController {
   @Get(':branchId/staff')
   @ApiOkResponse({ description: 'Staff list for branch', type: [StaffResponseDto] })
   async list(@Param('branchId') branchId: string, @Request() req: any): Promise<StaffResponseDto[]> {
-    const assignments = await this.branchStaffService.list(branchId, req.user.id);
+    const assignments = await this.branchStaffService.list(branchId, req.user.id, req.user.role);
     return plainToInstance(StaffResponseDto, assignments);
   }
 

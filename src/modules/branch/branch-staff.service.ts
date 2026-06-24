@@ -29,8 +29,10 @@ export class BranchStaffService {
   ) {}
 
   // UC25 — List staff at branch
-  async list(branchId: string, managerId: string): Promise<BranchStaff[]> {
-    await this.assertManagerAtBranch(managerId, branchId);
+  async list(branchId: string, managerId: string, role?: string): Promise<BranchStaff[]> {
+    if (role !== UserRole.Owner) {
+      await this.assertManagerAtBranch(managerId, branchId);
+    }
 
     return this.branchStaffRepo.find({
       where: { branchId },
