@@ -70,17 +70,18 @@ export class ReportController {
   // ── UC31: Branch performance report ──────────────────────────────────────────
 
   @Get('branch/:branchId')
+  @Roles(UserRole.Owner, UserRole.Manager)
   @ApiOkResponse({ description: 'Revenue summary and staff performance for the branch', type: BranchPerformanceReportDto })
   @ApiQuery({ name: 'from', required: false, description: 'Period start (ISO date). Defaults to 30 days ago.' })
   @ApiQuery({ name: 'to', required: false, description: 'Period end (ISO date). Defaults to now.' })
   async getBranchPerformance(
     @Param('branchId') branchId: string,
     @Query() query: ReportQueryDto,
-    @Request() req: { user: { id: string } },
+    @Request() req: any,
   ): Promise<BranchPerformanceReportDto> {
     const to = query.to ? new Date(query.to) : new Date();
     const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return this.reportService.getBranchPerformance(branchId, req.user.id, from, to);
+    return this.reportService.getBranchPerformance(branchId, req.user.id, req.user.role, from, to);
   }
 
   // ── UC37: Owner — performance rankings ───────────────────────────────────────

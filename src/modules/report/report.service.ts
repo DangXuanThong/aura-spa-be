@@ -37,8 +37,10 @@ export class ReportService {
   ) {}
 
   // UC31 — Branch performance report
-  async getBranchPerformance(branchId: string, managerId: string, from: Date, to: Date): Promise<BranchPerformanceReportDto> {
-    await this.assertManagerAtBranch(managerId, branchId);
+  async getBranchPerformance(branchId: string, managerId: string, userRole: string, from: Date, to: Date): Promise<BranchPerformanceReportDto> {
+    if (userRole !== 'owner') {
+      await this.assertManagerAtBranch(managerId, branchId);
+    }
 
     const [revenue, staffPerformance] = await Promise.all([
       this.queryRevenueSummary(branchId, from, to),
