@@ -150,4 +150,16 @@ export class ScheduleController {
     const request = await this.scheduleService.cancel(id, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
+
+  @Get('active-staff/:branchId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Get all staff currently on duty at a branch' })
+  async getActiveStaff(
+    @Param('branchId') branchId: string,
+    @Request() req: any,
+  ): Promise<any[]> {
+    return this.scheduleService.getActiveStaff(branchId, req.user.id, req.user.role);
+  }
 }

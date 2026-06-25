@@ -79,4 +79,7 @@ export class User {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
+
+  branchId?: string | null;
+  branchCode?: string | null;
 }

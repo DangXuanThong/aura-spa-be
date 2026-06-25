@@ -299,4 +299,61 @@ export class ReportService {
 
     return { periodFrom: from, periodTo: to, rankings };
   }
+
+  async getManagerDashboard(branchId: string, managerId: string, role: string): Promise<any> {
+    if (role !== 'owner') {
+      await this.assertManagerAtBranch(managerId, branchId);
+    }
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    // 1. Today's Revenue (Completed bookings today)
+    const revenueRaw = await this.bookingRepo
+      .createQueryBuilder('b')
+      .select('SUM(b.paidAmount)', 'revenue')
+      .where('b.branchId = :branchId', { branchId })
+      .andWhere('b.status = :completed', { completed: BookingStatus.Completed })
+      .andWhere('b.startTime >= :startOfToday', { startOfToday })
+      .andWhere('b.startTime <= :endOfToday', { endOfToday })
+      .getRawOne();
+    const todayRevenue = parseFloat(revenueRaw?.revenue || '0');
+
+    // 2. Today's Bookings Count
+    const todayBookingsCount = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId })
+      .andWhere('b.startTime >= :startOfToday', { startOfToday })
+      .andWhere('b.startTime <= :endOfToday', { endOfToday })
+      .getCount();
+
+    // 3. Active Staff Count (currently on shift)
+    const now = new Date();
+    const activeStaffCountRaw = await this.bookingRepo.query(
+      `SELECT COUNT(id) AS "count"
+       FROM staff_schedules
+       WHERE branch_id = $1 AND schedule_type = 'working' AND status = 'active'
+         AND start_time <= $2 AND end_time >= $2`,
+      [branchId, now]
+    );
+    const activeStaffCount = parseInt(activeStaffCountRaw?.[0]?.count || '0', 10);
+
+    // 4. Open Complaints Count (open or in_progress status)
+    const openComplaintsCountRaw = await this.bookingRepo.query(
+      `SELECT COUNT(id) AS "count"
+       FROM complaints
+       WHERE branch_id = $1 AND status IN ('open', 'in_progress')`,
+      [branchId]
+    );
+    const openComplaintsCount = parseInt(openComplaintsCountRaw?.[0]?.count || '0', 10);
+
+    return {
+      todayRevenue,
+      todayBookingsCount,
+      activeStaffCount,
+      openComplaintsCount,
+    };
+  }
 }

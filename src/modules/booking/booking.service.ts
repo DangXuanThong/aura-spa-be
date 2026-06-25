@@ -7,7 +7,7 @@ import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
-import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';

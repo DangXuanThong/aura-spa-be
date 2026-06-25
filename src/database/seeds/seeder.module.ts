@@ -25,7 +25,7 @@ import { Conversation } from 'src/modules/communication/entities/conversation.en
 import { Message } from 'src/modules/communication/entities/message.entity';
 import { Complaint } from 'src/modules/communication/entities/complaint.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
-import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { SeederService } from './seeder.service';
 import { BranchSetupSeeder } from './branch-setup.seeder';
 import { ScheduleSeeder } from './schedule.seeder';

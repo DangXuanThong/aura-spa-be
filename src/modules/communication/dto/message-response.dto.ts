@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Expose, Transform } from 'class-transformer';
 import { SenderType } from '../enums/sender-type.enum';
 
 export class MessageResponseDto {
@@ -25,4 +26,9 @@ export class MessageResponseDto {
 
   @ApiProperty({ example: '2025-01-01T00:00:00.000Z' })
   createdAt!: Date;
+
+  @ApiPropertyOptional({ example: 'manager' })
+  @Expose()
+  @Transform(({ obj }) => obj.senderUser?.role || null)
+  senderRole?: string | null;
 }

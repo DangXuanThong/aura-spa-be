@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
-import { StaffSchedule } from './entities/staff-schedule';
+import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { ScheduleController } from './schedule.controller';

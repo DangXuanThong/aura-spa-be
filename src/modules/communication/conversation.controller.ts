@@ -53,7 +53,7 @@ export class ConversationController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Owner, UserRole.Staff)
+  @Roles(UserRole.Owner, UserRole.Manager, UserRole.Staff)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'List of conversations', type: [ConversationResponseDto] })
   @ApiQuery({ name: 'status', enum: ConversationStatus, enumName: 'ConversationStatus', required: false })
@@ -67,7 +67,7 @@ export class ConversationController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Owner, UserRole.Staff)
+  @Roles(UserRole.Owner, UserRole.Manager, UserRole.Staff)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Conversation updated', type: ConversationResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -79,7 +79,7 @@ export class ConversationController {
 
   @Post(':id/reply')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Owner, UserRole.Staff)
+  @Roles(UserRole.Owner, UserRole.Manager, UserRole.Staff)
   @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ description: 'Staff reply sent; auto-assigns conversation if still Open', type: MessageResponseDto })

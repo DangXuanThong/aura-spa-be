@@ -34,6 +34,12 @@ export class UserProfileDto {
   @ApiProperty({ example: null, nullable: true })
   address!: string | null;
 
+  @ApiProperty({ example: '1', nullable: true, required: false })
+  branchId?: string | null;
+
+  @ApiProperty({ example: 'HCM-Q1', nullable: true, required: false })
+  branchCode?: string | null;
+
   @ApiProperty({ example: '2024-01-01T00:00:00.000Z' })
   createdAt!: Date;
 
