@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Request, Res, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { ApiResponse, buildSuccessResponse } from 'src/common/dto/api-response.dto';
@@ -31,6 +31,17 @@ interface RequestWithUser extends Request {
   user: User;
 }
 
+const DATE_OF_BIRTH_BAD_REQUEST_RESPONSE = {
+  description: 'Validation error, including invalid dateOfBirth',
+  schema: {
+    example: {
+      success: false,
+      code: 'VALIDATION_ERROR',
+      message: 'dateOfBirth must be a valid date and age must be between 10 and 100 years',
+    },
+  },
+};
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -42,6 +53,7 @@ export class AuthController {
   // UC01 — Register Account
   @Post('register')
   @ApiOkResponse({ type: RegisterResponseDto })
+  @ApiBadRequestResponse(DATE_OF_BIRTH_BAD_REQUEST_RESPONSE)
   @ApiConflictResponse({ description: 'Email or phone already in use' })
   async register(@Body() dto: RegisterDto): Promise<ApiResponse<UserProfileDto>> {
     const user = await this.authService.register(dto);
@@ -87,6 +99,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ type: GetProfileResponseDto })
+  @ApiBadRequestResponse(DATE_OF_BIRTH_BAD_REQUEST_RESPONSE)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiConflictResponse({ description: 'Phone number already in use' })
   async updateProfile(@Request() req: RequestWithUser, @Body() dto: UpdateProfileDto): Promise<ApiResponse<UserProfileDto>> {
