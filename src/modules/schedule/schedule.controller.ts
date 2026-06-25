@@ -108,7 +108,7 @@ export class ScheduleController {
 
   @Patch(':id/approve')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Manager, UserRole.Owner)
+  @Roles(UserRole.Manager)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Request approved and shift created', type: ScheduleRequestResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -116,7 +116,7 @@ export class ScheduleController {
   @ApiBadRequestResponse({ description: 'Request is not pending' })
   @ApiNotFoundResponse({ description: 'Schedule request not found' })
   async approve(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
-    const request = await this.scheduleService.approve(id, req.user.id, req.user.role);
+    const request = await this.scheduleService.approve(id, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
@@ -124,7 +124,7 @@ export class ScheduleController {
 
   @Patch(':id/reject')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Manager, UserRole.Owner)
+  @Roles(UserRole.Manager)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Request rejected', type: ScheduleRequestResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -132,7 +132,7 @@ export class ScheduleController {
   @ApiBadRequestResponse({ description: 'Request is not pending' })
   @ApiNotFoundResponse({ description: 'Schedule request not found' })
   async reject(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
-    const request = await this.scheduleService.reject(id, req.user.id, req.user.role);
+    const request = await this.scheduleService.reject(id, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
@@ -156,10 +156,7 @@ export class ScheduleController {
   @Roles(UserRole.Manager, UserRole.Owner)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Get all staff currently on duty at a branch' })
-  async getActiveStaff(
-    @Param('branchId') branchId: string,
-    @Request() req: any,
-  ): Promise<any[]> {
+  async getActiveStaff(@Param('branchId') branchId: string, @Request() req: any): Promise<any[]> {
     return this.scheduleService.getActiveStaff(branchId, req.user.id, req.user.role);
   }
 }

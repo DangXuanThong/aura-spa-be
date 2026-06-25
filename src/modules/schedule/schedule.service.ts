@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
 import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
@@ -15,7 +15,6 @@ import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
-import { User } from 'src/modules/user/entities/user.entity';
 
 const REQUEST_TYPE_TO_SCHEDULE_TYPE: Record<ScheduleRequestType, ScheduleType> = {
   [ScheduleRequestType.WorkShift]: ScheduleType.Working,
@@ -194,19 +193,17 @@ export class ScheduleService {
   }
 
   // UC26 — Approve a schedule request and create the corresponding shift
-  async approve(id: string, reviewerId: string, role?: string): Promise<ScheduleRequest> {
+  async approve(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
     if (request.status !== ApprovalStatus.Pending) {
       throw new BadRequestException('Only pending requests can be approved');
     }
 
-    if (role !== 'owner') {
-      await this.assertManagerAtBranch(reviewerId, request.branchId);
-    }
+    await this.assertManagerAtBranch(managerId, request.branchId);
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: reviewerId, reviewedAt: now });
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
 
     await this.staffScheduleRepo.save(
       this.staffScheduleRepo.create({
@@ -217,7 +214,7 @@ export class ScheduleService {
         scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
         status: ScheduleStatus.Active,
         sourceRequestId: request.id,
-        createdBy: reviewerId,
+        createdBy: managerId,
       }),
     );
 
@@ -225,19 +222,17 @@ export class ScheduleService {
   }
 
   // UC26 — Reject a schedule request
-  async reject(id: string, reviewerId: string, role?: string): Promise<ScheduleRequest> {
+  async reject(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
     if (request.status !== ApprovalStatus.Pending) {
       throw new BadRequestException('Only pending requests can be rejected');
     }
 
-    if (role !== 'owner') {
-      await this.assertManagerAtBranch(reviewerId, request.branchId);
-    }
+    await this.assertManagerAtBranch(managerId, request.branchId);
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: reviewerId, reviewedAt: now });
+    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }
@@ -291,21 +286,17 @@ export class ScheduleService {
     }
     const assignmentMap = new Map(assignments.map((a) => [a.userId, a]));
 
-    let ratingsMap = new Map<string, number>();
+    const ratingsMap = new Map<string, number>();
     if (staffIds.length > 0) {
-      try {
-        const ratingsRaw = await this.bookingRepo.query(
-          `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
+      const ratingsRaw = await this.bookingRepo.query(
+        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
            FROM reviews
            WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
            GROUP BY technician_id`,
-          staffIds
-        );
-        for (const item of ratingsRaw) {
-          ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
-        }
-      } catch (e) {
-        console.error('Error fetching staff ratings:', e);
+        staffIds,
+      );
+      for (const item of ratingsRaw) {
+        ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
       }
     }
 
