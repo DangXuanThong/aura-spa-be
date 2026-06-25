@@ -915,4 +915,22 @@ export class BookingService {
     }
     return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
   }
+
+  async assignRoom(id: string, room: string | null, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+    const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    if (requesterRole !== UserRole.Owner) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
+      });
+      if (!assignment) throw new ForbiddenException('You are not active at this branch');
+    }
+
+    await this.bookingRepo.update(id, { room });
+    booking.room = room;
+
+    const [withServices] = await this.attachServices([booking]);
+    return withServices;
+  }
 }

@@ -72,6 +72,9 @@ export class BookingResponseDto {
   @ApiProperty({ example: 350000 })
   remainingAmount!: number;
 
+  @ApiPropertyOptional({ example: 'Phòng VIP 1' })
+  room!: string | null;
+
   @ApiPropertyOptional({ example: 'Please use fragrance-free products.' })
   notes!: string | null;
 

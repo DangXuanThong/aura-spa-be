@@ -8,12 +8,11 @@ async function main() {
   
   try {
     const res = await client.query(`
-      SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
-      FROM reviews
-      WHERE technician_id IN ($1) AND status = 'published'
-      GROUP BY technician_id
-    `, ['7']);
-    console.log('Query result:', res.rows);
+      SELECT id, customer_id, branch_id, technician_id, start_time, room, status 
+      FROM bookings 
+      LIMIT 5
+    `);
+    console.log('Bookings:', res.rows);
   } catch (e) {
     console.error('Query failed:', e);
   }
