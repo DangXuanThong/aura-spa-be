@@ -329,6 +329,15 @@ export class ReportService {
       .andWhere('b.startTime <= :endOfToday', { endOfToday })
       .getCount();
 
+    // 2.1 Today's Completed Bookings Count
+    const completedBookingsCount = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.branchId = :branchId', { branchId })
+      .andWhere('b.status = :completed', { completed: BookingStatus.Completed })
+      .andWhere('b.startTime >= :startOfToday', { startOfToday })
+      .andWhere('b.startTime <= :endOfToday', { endOfToday })
+      .getCount();
+
     // 3. Active Staff Count (currently on shift)
     const now = new Date();
     const activeStaffCountRaw = await this.bookingRepo.query(
@@ -352,6 +361,7 @@ export class ReportService {
     return {
       todayRevenue,
       todayBookingsCount,
+      completedBookingsCount,
       activeStaffCount,
       openComplaintsCount,
     };

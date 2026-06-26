@@ -2,7 +2,7 @@ import * as bcrypt from 'bcryptjs';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { BranchStaff } from './entities/branch-staff.entity';
 import { Branch } from './entities/branch.entity';
 import { User } from 'src/modules/user/entities/user.entity';
@@ -138,6 +138,23 @@ export class BranchStaffService {
       status: StaffStatus.Inactive,
       endDate: new Date(),
     });
+
+    // Reassign upcoming/active bookings of this staff to null (Chưa phân công KTV)
+    const { Booking } = await import('src/modules/booking/entities/booking.entity');
+    const { BookingStatus } = await import('src/modules/booking/enums/booking-status.enum');
+    await this.branchStaffRepo.manager.update(
+      Booking,
+      {
+        technicianId: userId,
+        status: In([
+          BookingStatus.PendingPayment,
+          BookingStatus.Confirmed,
+          BookingStatus.CheckedIn,
+          BookingStatus.InService,
+        ]),
+      },
+      { technicianId: null }
+    );
 
     return this.loadAssignment(branchId, userId);
   }
