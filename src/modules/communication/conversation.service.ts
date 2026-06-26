@@ -117,10 +117,9 @@ export class ConversationService {
       );
       const isOnShift = shift && shift.length > 0;
 
-      const bs = await this.conversationRepo.manager.query(
-        `SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-        [requesterId],
-      );
+      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+        requesterId,
+      ]);
       if (isOnShift && bs && bs.length > 0) {
         const staffBranchId = bs[0].branch_id;
         query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId = :staffBranchId))', {
@@ -134,10 +133,9 @@ export class ConversationService {
     }
 
     if (requesterRole === UserRole.Manager && requesterId) {
-      const bs = await this.conversationRepo.manager.query(
-        `SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-        [requesterId],
-      );
+      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+        requesterId,
+      ]);
       if (bs && bs.length > 0) {
         const mgrBranchId = bs[0].branch_id;
         query.andWhere('(c.branchId = :mgrBranchId OR c.assignedStaffId = :requesterId)', {
@@ -157,10 +155,9 @@ export class ConversationService {
     this.assertCanHandleConversation(conversation, requesterId, requesterRole);
 
     if (!conversation.branchId && (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager)) {
-      const bs = await this.messageRepo.manager.query(
-        `SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-        [requesterId],
-      );
+      const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+        requesterId,
+      ]);
       if (bs && bs.length > 0) {
         conversation.branchId = bs[0].branch_id;
       }
@@ -199,10 +196,9 @@ export class ConversationService {
       conversation.status = ConversationStatus.Assigned;
       conversation.assignedStaffId = staffUserId;
       if (!conversation.branchId) {
-        const bs = await this.messageRepo.manager.query(
-          `SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-          [staffUserId],
-        );
+        const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+          staffUserId,
+        ]);
         if (bs && bs.length > 0) {
           conversation.branchId = bs[0].branch_id;
         }
