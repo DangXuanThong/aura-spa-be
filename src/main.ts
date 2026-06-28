@@ -8,7 +8,8 @@ import { HttpExceptionFilter } from 'src/common/filters/http-exception.filter';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true preserves req.rawBody for SePay HMAC verification (must not re-serialize JSON).
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService = app.get(ConfigService);
   const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
