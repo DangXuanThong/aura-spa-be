@@ -20,6 +20,7 @@ import { SlotConfigService } from './slot-config.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
+import { TransferManagerDto } from './dto/transfer-manager.dto';
 import { StaffResponseDto } from './dto/staff-response.dto';
 import { UpdateSlotConfigDto } from './dto/update-slot-config.dto';
 import { SlotConfigResponseDto } from './dto/slot-config-response.dto';
@@ -69,6 +70,16 @@ export class BranchStaffController {
 
   // ── UC25: Edit staff account / position ────────────────────────────────────
 
+  @Patch(':branchId/staff/:userId/deactivate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Staff member deactivated', type: StaffResponseDto })
+  @ApiBadRequestResponse({ description: 'Staff already inactive or self-deactivation attempt' })
+  @ApiNotFoundResponse({ description: 'Staff member not found at this branch' })
+  async deactivate(@Param('branchId') branchId: string, @Param('userId') userId: string, @Request() req: any): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.deactivate(branchId, userId, req.user.id);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
   @Patch(':branchId/staff/:userId')
   @ApiOkResponse({ description: 'Staff account updated', type: StaffResponseDto })
   @ApiConflictResponse({ description: 'Email already in use' })
@@ -80,18 +91,6 @@ export class BranchStaffController {
     @Request() req: any,
   ): Promise<StaffResponseDto> {
     const assignment = await this.branchStaffService.update(branchId, userId, dto, req.user.id);
-    return plainToInstance(StaffResponseDto, assignment);
-  }
-
-  // ── UC25: Deactivate staff ──────────────────────────────────────────────────
-
-  @Patch(':branchId/staff/:userId/deactivate')
-  @HttpCode(HttpStatus.OK)
-  @ApiOkResponse({ description: 'Staff member deactivated', type: StaffResponseDto })
-  @ApiBadRequestResponse({ description: 'Staff already inactive or self-deactivation attempt' })
-  @ApiNotFoundResponse({ description: 'Staff member not found at this branch' })
-  async deactivate(@Param('branchId') branchId: string, @Param('userId') userId: string, @Request() req: any): Promise<StaffResponseDto> {
-    const assignment = await this.branchStaffService.deactivate(branchId, userId, req.user.id);
     return plainToInstance(StaffResponseDto, assignment);
   }
 
@@ -115,16 +114,6 @@ export class BranchStaffController {
     return plainToInstance(StaffResponseDto, assignment);
   }
 
-  @Patch(':branchId/managers/:userId')
-  @Roles(UserRole.Owner)
-  @ApiOkResponse({ description: 'Manager account updated', type: StaffResponseDto })
-  @ApiConflictResponse({ description: 'Email already in use' })
-  @ApiNotFoundResponse({ description: 'Manager not found at this branch' })
-  async updateManager(@Param('branchId') branchId: string, @Param('userId') userId: string, @Body() dto: UpdateStaffDto): Promise<StaffResponseDto> {
-    const assignment = await this.branchStaffService.updateManager(branchId, userId, dto);
-    return plainToInstance(StaffResponseDto, assignment);
-  }
-
   @Patch(':branchId/managers/:userId/deactivate')
   @Roles(UserRole.Owner)
   @HttpCode(HttpStatus.OK)
@@ -133,6 +122,32 @@ export class BranchStaffController {
   @ApiNotFoundResponse({ description: 'Manager not found at this branch' })
   async deactivateManager(@Param('branchId') branchId: string, @Param('userId') userId: string): Promise<StaffResponseDto> {
     const assignment = await this.branchStaffService.deactivateManager(branchId, userId);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  @Patch(':branchId/managers/:userId/transfer')
+  @Roles(UserRole.Owner)
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Manager transferred to target branch', type: StaffResponseDto })
+  @ApiBadRequestResponse({ description: 'Target branch is the same or manager is inactive' })
+  @ApiConflictResponse({ description: 'Manager already assigned at target branch' })
+  @ApiNotFoundResponse({ description: 'Manager or target branch not found' })
+  async transferManager(
+    @Param('branchId') branchId: string,
+    @Param('userId') userId: string,
+    @Body() dto: TransferManagerDto,
+  ): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.transferManager(branchId, userId, dto);
+    return plainToInstance(StaffResponseDto, assignment);
+  }
+
+  @Patch(':branchId/managers/:userId')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Manager account updated', type: StaffResponseDto })
+  @ApiConflictResponse({ description: 'Email already in use' })
+  @ApiNotFoundResponse({ description: 'Manager not found at this branch' })
+  async updateManager(@Param('branchId') branchId: string, @Param('userId') userId: string, @Body() dto: UpdateStaffDto): Promise<StaffResponseDto> {
+    const assignment = await this.branchStaffService.updateManager(branchId, userId, dto);
     return plainToInstance(StaffResponseDto, assignment);
   }
 
