@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDateOfBirth } from 'src/common/validators/date-of-birth.validator';
 import { Gender } from 'src/modules/user/enums/gender.enum';
 
 export class RegisterDto {
@@ -33,7 +34,7 @@ export class RegisterDto {
 
   @ApiPropertyOptional({ example: '1990-01-01' })
   @IsOptional()
-  @IsString()
+  @IsDateOfBirth()
   dateOfBirth?: string;
 
   @ApiPropertyOptional({ example: '123 Nguyen Hue, Ho Chi Minh City' })
