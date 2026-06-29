@@ -468,6 +468,10 @@ export class BookingService {
       throw new BadRequestException('Only confirmed bookings can be checked in');
     }
 
+    if (new Date() < booking.startTime) {
+      throw new BadRequestException('Cannot check in before the booking start time');
+    }
+
     // 3. Staff must be active at the booking branch
     const assignment = await this.branchStaffRepo.findOne({
       where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
@@ -753,7 +757,11 @@ export class BookingService {
     return this.attachServices(bookings);
   }
 
-  async findBranchBookings(branchId: string, requesterId: string, requesterRole: string): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
+  async findBranchBookings(
+    branchId: string,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
     if (requesterRole !== UserRole.Owner) {
       const assignment = await this.branchStaffRepo.findOne({
         where: { userId: requesterId, branchId, status: StaffStatus.Active },

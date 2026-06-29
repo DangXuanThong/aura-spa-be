@@ -344,18 +344,9 @@ export class SeederService implements OnApplicationBootstrap {
     for (const [code, presentation] of Object.entries(SERVICE_PRESENTATION_OVERRIDES)) {
       const service = await this.serviceRepository.findOne({ where: { code } });
       if (!service) continue;
-      if (presentation.slug && service.slug === presentation.slug) continue;
 
-      try {
-        await this.serviceRepository.save({ ...service, ...presentation });
-        updated++;
-      } catch (e: any) {
-        if (e?.code === '23505') {
-          this.logger.warn(`Skipping presentation update for ${code}: slug already taken by another row`);
-          continue;
-        }
-        throw e;
-      }
+      await this.serviceRepository.save({ ...service, ...presentation });
+      updated++;
     }
 
     if (seeded > 0) this.logger.log(`Seeded ${seeded} presentation service(s)`);
