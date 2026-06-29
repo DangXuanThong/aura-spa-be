@@ -316,7 +316,7 @@ export class SeederService implements OnApplicationBootstrap {
     let seeded = 0;
 
     for (const s of SERVICES) {
-      const exists = await this.serviceRepository.findOne({ where: { code: s.code } });
+      const exists = await this.serviceRepository.findOne({ where: [{ code: s.code }, { slug: s.slug }] });
       if (exists) continue;
 
       await this.serviceRepository.save(this.serviceRepository.create(s));
@@ -344,9 +344,19 @@ export class SeederService implements OnApplicationBootstrap {
     for (const [code, presentation] of Object.entries(SERVICE_PRESENTATION_OVERRIDES)) {
       const service = await this.serviceRepository.findOne({ where: { code } });
       if (!service) continue;
+      if (presentation.slug && service.slug === presentation.slug) continue;
 
-      await this.serviceRepository.save({ ...service, ...presentation });
-      updated++;
+      try {
+        await this.serviceRepository.save({ ...service, ...presentation });
+        updated++;
+      } catch (e: any) {
+        const pgCode = e?.code ?? e?.driverError?.code;
+        if (pgCode === '23505') {
+          this.logger.warn(`Skipping presentation update for ${code}: slug already taken by another row`);
+          continue;
+        }
+        throw e;
+      }
     }
 
     if (seeded > 0) this.logger.log(`Seeded ${seeded} presentation service(s)`);
