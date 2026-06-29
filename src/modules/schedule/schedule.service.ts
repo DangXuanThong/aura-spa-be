@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
-import { StaffSchedule } from './entities/staff-schedule';
+import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { ApprovalStatus } from './enums/approval-status.enum';
@@ -14,6 +14,7 @@ import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 
 const REQUEST_TYPE_TO_SCHEDULE_TYPE: Record<ScheduleRequestType, ScheduleType> = {
   [ScheduleRequestType.WorkShift]: ScheduleType.Working,
@@ -174,6 +175,23 @@ export class ScheduleService {
     return requests.map((r) => Object.assign(r, { staffFullName: r.staff?.fullName ?? '', staffEmail: r.staff?.email ?? null }));
   }
 
+  // Owner: List all pending schedule requests system-wide
+  async listAllPending(): Promise<(ScheduleRequest & { staffFullName: string; staffEmail: string | null; branchName: string })[]> {
+    const requests = await this.scheduleRequestRepo.find({
+      where: { status: ApprovalStatus.Pending },
+      relations: ['staff', 'branch'],
+      order: { requestedStart: 'ASC' },
+    });
+
+    return requests.map((r) =>
+      Object.assign(r, {
+        staffFullName: r.staff?.fullName ?? '',
+        staffEmail: r.staff?.email ?? null,
+        branchName: r.branch?.name ?? '',
+      }),
+    );
+  }
+
   // UC26 — Approve a schedule request and create the corresponding shift
   async approve(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
@@ -230,6 +248,74 @@ export class ScheduleService {
 
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Cancelled });
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+  }
+
+  async getActiveStaff(branchId: string, userId: string, role: string): Promise<any[]> {
+    let targetBranchId = branchId;
+    if (role !== UserRole.Owner) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId, status: StaffStatus.Active },
+      });
+      if (!assignment) {
+        throw new ForbiddenException('You are not an active staff member at any branch');
+      }
+      targetBranchId = assignment.branchId;
+    }
+
+    const now = new Date();
+    const schedules = await this.staffScheduleRepo.find({
+      where: {
+        scheduleType: ScheduleType.Working,
+        status: ScheduleStatus.Active,
+        startTime: LessThanOrEqual(now),
+        endTime: MoreThanOrEqual(now),
+        ...(targetBranchId !== 'all' ? { branchId: targetBranchId } : {}),
+      },
+      relations: ['staff', 'branch'],
+    });
+
+    const staffIds = schedules.map((s) => s.staffId);
+    let assignments: BranchStaff[] = [];
+    if (staffIds.length > 0) {
+      assignments = await this.branchStaffRepo.find({
+        where: {
+          userId: In(staffIds),
+          status: StaffStatus.Active,
+        },
+      });
+    }
+    const assignmentMap = new Map(assignments.map((a) => [a.userId, a]));
+
+    const ratingsMap = new Map<string, number>();
+    if (staffIds.length > 0) {
+      const ratingsRaw = await this.bookingRepo.query(
+        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
+           FROM reviews
+           WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
+           GROUP BY technician_id`,
+        staffIds,
+      );
+      for (const item of ratingsRaw) {
+        ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
+      }
+    }
+
+    return schedules.map((s) => {
+      const assignment = assignmentMap.get(s.staffId);
+      return {
+        shiftId: s.id,
+        staffId: s.staffId,
+        name: s.staff?.fullName || '',
+        email: s.staff?.email || null,
+        phone: s.staff?.phone || null,
+        position: assignment?.position || 'technician',
+        branchId: s.branchId,
+        branchName: s.branch?.name || '',
+        startTime: s.startTime,
+        endTime: s.endTime,
+        rating: Math.round((ratingsMap.get(s.staffId) ?? 5.0) * 10) / 10,
+      };
+    });
   }
 
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {

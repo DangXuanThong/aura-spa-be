@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
 
 export interface FindUserByEmailOptions {
@@ -24,20 +24,47 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  async getBranchInfo(userId: string): Promise<{ branchId: string | null; branchCode: string | null }> {
+    const result = await this.dataSource.query(
+      `SELECT bs.branch_id as "branchId", b.code as "branchCode"
+       FROM branch_staff bs
+       JOIN branches b ON bs.branch_id = b.id
+       WHERE bs.user_id = $1 AND bs.status = 'active'
+       LIMIT 1`,
+      [userId],
+    );
+    if (result && result.length > 0) {
+      return {
+        branchId: result[0].branchId.toString(),
+        branchCode: result[0].branchCode,
+      };
+    }
+    return { branchId: null, branchCode: null };
+  }
 
   async findByEmail(email: string, options?: FindUserByEmailOptions): Promise<User | null> {
     const normalizedEmail = email.trim().toLowerCase();
+    let user: User | null = null;
 
     if (options?.includePasswordHash) {
-      return this.userRepository
+      user = await this.userRepository
         .createQueryBuilder('user')
         .addSelect('user.passwordHash') // Auth cần password hash để compare khi login.
         .where('user.email = :email', { email: normalizedEmail })
         .getOne();
+    } else {
+      user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
     }
 
-    return this.userRepository.findOne({ where: { email: normalizedEmail } });
+    if (user && (user.role === 'staff' || user.role === 'manager')) {
+      const branchInfo = await this.getBranchInfo(user.id);
+      user.branchId = branchInfo.branchId;
+      user.branchCode = branchInfo.branchCode;
+    }
+    return user;
   }
 
   async findByPhone(phone: string): Promise<User | null> {
@@ -45,7 +72,13 @@ export class UserService {
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { id } });
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (user && (user.role === 'staff' || user.role === 'manager')) {
+      const branchInfo = await this.getBranchInfo(user.id);
+      user.branchId = branchInfo.branchId;
+      user.branchCode = branchInfo.branchCode;
+    }
+    return user;
   }
 
   async create(data: CreateUserData): Promise<User> {
@@ -63,3 +96,4 @@ export class UserService {
     await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 }
+

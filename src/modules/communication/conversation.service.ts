@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
+import { User } from 'src/modules/user/entities/user.entity';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { ConversationStatus } from './enums/conversation-status.enum';
@@ -20,8 +21,19 @@ export class ConversationService {
 
   // UC08 — Guest Submit Online Inquiry
   async createGuestConversation(dto: CreateConversationDto): Promise<{ conversation: Conversation; message: Message }> {
+    let customerId: string | null = null;
+    if (dto.guestEmail) {
+      const existingUser = await this.messageRepo.manager.findOne(User, {
+        where: { email: dto.guestEmail.trim().toLowerCase() },
+      });
+      if (existingUser) {
+        customerId = existingUser.id;
+      }
+    }
+
     const conversation = await this.conversationRepo.save(
       this.conversationRepo.create({
+        customerId,
         guestName: dto.guestName,
         guestEmail: dto.guestEmail,
         guestPhone: dto.guestPhone,
@@ -56,12 +68,18 @@ export class ConversationService {
     await this.findOne(conversationId); // 404 if not found
     return this.messageRepo.find({
       where: { conversationId },
+      relations: ['senderUser'],
       order: { createdAt: 'ASC' },
     });
   }
 
   async sendGuestMessage(conversationId: string, text: string): Promise<Message> {
-    await this.findOne(conversationId);
+    const conversation = await this.findOne(conversationId);
+    if (conversation.status === ConversationStatus.Closed) {
+      conversation.status = ConversationStatus.Open;
+      conversation.assignedStaffId = null;
+      await this.conversationRepo.save(conversation);
+    }
     return this.messageRepo.save(
       this.messageRepo.create({
         conversationId,
@@ -86,10 +104,47 @@ export class ConversationService {
     }
 
     if (requesterRole === UserRole.Staff && requesterId) {
-      query.andWhere('(c.status = :openStatus OR c.assignedStaffId = :requesterId)', {
-        openStatus: ConversationStatus.Open,
+      const now = new Date();
+      const shift = await this.conversationRepo.manager.query(
+        `SELECT id FROM staff_schedules
+         WHERE staff_id = $1
+           AND schedule_type = 'working'
+           AND status = 'active'
+           AND start_time <= $2
+           AND end_time >= $2
+         LIMIT 1`,
+        [requesterId, now],
+      );
+      const isOnShift = shift && shift.length > 0;
+
+      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
         requesterId,
-      });
+      ]);
+      if (isOnShift && bs && bs.length > 0) {
+        const staffBranchId = bs[0].branch_id;
+        query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId = :staffBranchId))', {
+          openStatus: ConversationStatus.Open,
+          requesterId,
+          staffBranchId,
+        });
+      } else {
+        query.andWhere('c.assignedStaffId = :requesterId', { requesterId });
+      }
+    }
+
+    if (requesterRole === UserRole.Manager && requesterId) {
+      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+        requesterId,
+      ]);
+      if (bs && bs.length > 0) {
+        const mgrBranchId = bs[0].branch_id;
+        query.andWhere('(c.branchId = :mgrBranchId OR c.assignedStaffId = :requesterId)', {
+          mgrBranchId,
+          requesterId,
+        });
+      } else {
+        query.andWhere('c.assignedStaffId = :requesterId', { requesterId });
+      }
     }
 
     return query.orderBy('c.updatedAt', 'DESC').getMany();
@@ -99,8 +154,34 @@ export class ConversationService {
     const conversation = await this.findOne(id);
     this.assertCanHandleConversation(conversation, requesterId, requesterRole);
 
+    if (!conversation.branchId && (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager)) {
+      const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+        requesterId,
+      ]);
+      if (bs && bs.length > 0) {
+        conversation.branchId = bs[0].branch_id;
+      }
+    }
+
     if (requesterRole === UserRole.Staff && dto.assignedStaffId && dto.assignedStaffId !== requesterId) {
-      throw new ForbiddenException('Staff can only assign a conversation to themselves');
+      if (dto.assignedStaffId === 'manager') {
+        const managerAssignment = await this.messageRepo.manager.query(
+          `SELECT user_id FROM branch_staff
+           WHERE branch_id = $1 AND position = 'manager' AND status = 'active'
+           LIMIT 1`,
+          [conversation.branchId],
+        );
+        if (managerAssignment && managerAssignment.length > 0) {
+          dto.assignedStaffId = managerAssignment[0].user_id.toString();
+          dto.status = ConversationStatus.Assigned;
+        } else {
+          conversation.assignedStaffId = null;
+          dto.assignedStaffId = undefined;
+          dto.status = ConversationStatus.Open;
+        }
+      } else {
+        throw new ForbiddenException('Staff can only assign a conversation to themselves or to the branch manager');
+      }
     }
 
     Object.assign(conversation, dto);
@@ -114,10 +195,18 @@ export class ConversationService {
     if (conversation.status === ConversationStatus.Open) {
       conversation.status = ConversationStatus.Assigned;
       conversation.assignedStaffId = staffUserId;
+      if (!conversation.branchId) {
+        const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
+          staffUserId,
+        ]);
+        if (bs && bs.length > 0) {
+          conversation.branchId = bs[0].branch_id;
+        }
+      }
       await this.conversationRepo.save(conversation);
     }
 
-    return this.messageRepo.save(
+    const message = await this.messageRepo.save(
       this.messageRepo.create({
         conversationId,
         senderType: SenderType.Staff,
@@ -126,10 +215,18 @@ export class ConversationService {
         attachments: null,
       }),
     );
+
+    const staffUser = await this.messageRepo.manager.findOne(User, { where: { id: staffUserId } });
+    if (staffUser) {
+      message.senderUser = staffUser;
+    }
+    return message;
   }
 
   private assertCanHandleConversation(conversation: Conversation, requesterId: string, requesterRole: UserRole): void {
     if (requesterRole === UserRole.Owner) return;
+
+    if (requesterRole === UserRole.Manager) return;
 
     if (conversation.status === ConversationStatus.Open) return;
 

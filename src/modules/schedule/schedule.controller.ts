@@ -73,6 +73,18 @@ export class ScheduleController {
     return plainToInstance(ScheduleRequestResponseDto, requests);
   }
 
+  // ── Owner: list all pending schedule requests system-wide ──────────────
+
+  @Get('all-pending')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'All pending schedule requests across all branches', type: [ScheduleRequestManagerResponseDto] })
+  async listAllPending(): Promise<ScheduleRequestManagerResponseDto[]> {
+    const requests = await this.scheduleService.listAllPending();
+    return plainToInstance(ScheduleRequestManagerResponseDto, requests);
+  }
+
   // ── Manager: list branch requests (UC26 — Assign Shifts) ────────────────
 
   @Get('branch/:branchId')
@@ -137,5 +149,14 @@ export class ScheduleController {
   async cancel(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
     const request = await this.scheduleService.cancel(id, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
+  }
+
+  @Get('active-staff/:branchId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Get all staff currently on duty at a branch' })
+  async getActiveStaff(@Param('branchId') branchId: string, @Request() req: any): Promise<any[]> {
+    return this.scheduleService.getActiveStaff(branchId, req.user.id, req.user.role);
   }
 }

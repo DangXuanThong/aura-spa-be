@@ -7,7 +7,7 @@ import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
-import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
@@ -922,5 +922,23 @@ export class BookingService {
       servicesByBooking.set(svc.bookingId, list);
     }
     return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
+  }
+
+  async assignRoom(id: string, room: string | null, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+    const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    if (requesterRole !== UserRole.Owner) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
+      });
+      if (!assignment) throw new ForbiddenException('You are not active at this branch');
+    }
+
+    await this.bookingRepo.update(id, { room });
+    booking.room = room;
+
+    const [withServices] = await this.attachServices([booking]);
+    return withServices;
   }
 }

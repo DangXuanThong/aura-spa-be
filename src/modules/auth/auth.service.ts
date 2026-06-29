@@ -254,6 +254,8 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       dateOfBirth: user.dateOfBirth,
       address: user.address,
+      branchId: user.branchId ?? null,
+      branchCode: user.branchCode ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

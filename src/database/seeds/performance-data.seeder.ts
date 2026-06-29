@@ -27,7 +27,7 @@ const ALL_EMAILS = [
   'hoa.le@gmail.com',
   'bao.pham@gmail.com',
   'mai.hoang@gmail.com',
-  'thu.vo@aura-spa.com',
+  'lan.staff@aura-spa.com',
   'duc.nguyen@aura-spa.com',
   'bich.tran@aura-spa.com',
   'long.pham@aura-spa.com',

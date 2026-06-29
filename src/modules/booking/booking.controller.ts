@@ -206,6 +206,16 @@ export class BookingController {
     return plainToInstance(BookingResponseDto, booking);
   }
 
+  @Patch(':id/assign-room')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Room assigned successfully', type: BookingResponseDto })
+  async assignRoom(@Param('id') id: string, @Body() dto: { room: string | null }, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.assignRoom(id, dto.room, req.user.id, req.user.role);
+    return plainToInstance(BookingResponseDto, booking);
+  }
+
   @Get('branch/:branchId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)

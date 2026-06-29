@@ -31,7 +31,7 @@ export const CUSTOMERS = [
 ];
 
 export const STAFF = [
-  { fullName: 'Vo Thi Thu', email: 'thu.vo@aura-spa.com', phone: '0902222001', gender: Gender.Female },
+  { fullName: 'Nguyễn Thị Lan', email: 'lan.staff@aura-spa.com', phone: '0902222001', gender: Gender.Female },
   { fullName: 'Nguyen Van Duc', email: 'duc.nguyen@aura-spa.com', phone: '0902222002', gender: Gender.Male },
   { fullName: 'Tran Thi Bich', email: 'bich.tran@aura-spa.com', phone: '0902222003', gender: Gender.Female },
   // Second technician at HCM-Q1 (UC28 reassign demo)
@@ -213,7 +213,7 @@ export const SERVICES = [
 // ── Branch setup ──────────────────────────────────────────────────────────────
 
 export const STAFF_ASSIGNMENTS = [
-  { email: 'thu.vo@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-001', position: StaffPosition.Technician },
+  { email: 'lan.staff@aura-spa.com', branchCode: 'HCM-Q1', staffCode: 'STF-HCM-Q1-001', position: StaffPosition.Technician },
   { email: 'duc.nguyen@aura-spa.com', branchCode: 'HCM-Q7', staffCode: 'STF-HCM-Q7-001', position: StaffPosition.Technician },
   { email: 'bich.tran@aura-spa.com', branchCode: 'HAN-HK', staffCode: 'STF-HAN-HK-001', position: StaffPosition.Technician },
   { email: 'an.nguyen.dn@aura-spa.com', branchCode: 'DAN-HC', staffCode: 'STF-DAN-HC-001', position: StaffPosition.Technician },
@@ -236,7 +236,7 @@ export const DEMO_BOOKINGS = [
   {
     customerEmail: 'lan.nguyen@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     startTime: new Date('2026-06-02T10:00:00+07:00'),
     endTime: new Date('2026-06-02T11:00:00+07:00'),
@@ -453,7 +453,7 @@ export const UPCOMING_BOOKINGS = [
   {
     customerEmail: 'lan.nguyen@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     startTime: slotAt(3, 10),
     durationMinutes: 60,
@@ -525,7 +525,7 @@ export const TRANSFERRED_PAIR = {
   original: {
     customerEmail: 'mai.hoang@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     startTime: slotAt(14, 10),
     durationMinutes: 60,
@@ -593,7 +593,7 @@ export const DEMO_CONVERSATIONS = [
 export const CHECKED_IN_BOOKING = {
   customerEmail: 'minh.tran@gmail.com',
   branchCode: 'HCM-Q1',
-  technicianEmail: 'thu.vo@aura-spa.com',
+  technicianEmail: 'lan.staff@aura-spa.com',
   serviceCode: 'SVC-FACIAL-001',
   startTime: slotAt(0, 9),
   durationMinutes: 60,
@@ -608,7 +608,7 @@ export const CHECKED_IN_BOOKING = {
 export const WALK_IN_BOOKING = {
   customerEmail: 'bao.pham@gmail.com',
   branchCode: 'HCM-Q1',
-  technicianEmail: 'thu.vo@aura-spa.com',
+  technicianEmail: 'lan.staff@aura-spa.com',
   serviceCode: 'SVC-NAIL-001',
   startTime: slotAt(0, 10),
   durationMinutes: 45,
@@ -623,7 +623,7 @@ export const WALK_IN_BOOKING = {
 
 export const SCHEDULE_DEFS = [
   {
-    staffEmail: 'thu.vo@aura-spa.com',
+    staffEmail: 'lan.staff@aura-spa.com',
     branchCode: 'HCM-Q1',
     requests: [
       {
@@ -748,21 +748,21 @@ export const TREATMENT_COURSE_DEFS = [
       {
         sessionNumber: 1,
         status: TreatmentSessionStatus.Completed,
-        technicianEmail: 'thu.vo@aura-spa.com',
+        technicianEmail: 'lan.staff@aura-spa.com',
         progressNote: 'Buổi 1: Da phản ứng tốt, giảm mụn viêm rõ rệt sau liệu trình.',
         completedAt: daysFromNow(-20),
       },
       {
         sessionNumber: 2,
         status: TreatmentSessionStatus.Completed,
-        technicianEmail: 'thu.vo@aura-spa.com',
+        technicianEmail: 'lan.staff@aura-spa.com',
         progressNote: 'Buổi 2: Độ ẩm da tăng đáng kể, lỗ chân lông se khít hơn.',
         completedAt: daysFromNow(-10),
       },
       {
         sessionNumber: 3,
         status: TreatmentSessionStatus.Booked,
-        technicianEmail: 'thu.vo@aura-spa.com',
+        technicianEmail: 'lan.staff@aura-spa.com',
         progressNote: null,
         completedAt: null,
       },
@@ -856,7 +856,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'lan.nguyen@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     price: 350000,
     durationMinutes: 60,
@@ -867,7 +867,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'minh.tran@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-BODY-001',
     price: 500000,
     durationMinutes: 90,
@@ -876,7 +876,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'hoa.le@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-NAIL-001',
     price: 200000,
     durationMinutes: 45,
@@ -887,7 +887,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'bao.pham@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-BODY-001',
     price: 500000,
     durationMinutes: 90,
@@ -896,7 +896,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'mai.hoang@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-002',
     price: 650000,
     durationMinutes: 90,
@@ -907,7 +907,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'lan.nguyen@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-BODY-001',
     price: 500000,
     durationMinutes: 90,
@@ -916,7 +916,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'minh.tran@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-NAIL-001',
     price: 200000,
     durationMinutes: 45,
@@ -927,7 +927,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'hoa.le@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     price: 350000,
     durationMinutes: 60,
@@ -936,7 +936,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'bao.pham@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-BODY-002',
     price: 800000,
     durationMinutes: 120,
@@ -947,7 +947,7 @@ export const RANKING_SEED_BOOKINGS: RankingSeedBooking[] = [
   {
     customerEmail: 'mai.hoang@gmail.com',
     branchCode: 'HCM-Q1',
-    technicianEmail: 'thu.vo@aura-spa.com',
+    technicianEmail: 'lan.staff@aura-spa.com',
     serviceCode: 'SVC-FACIAL-001',
     price: 350000,
     durationMinutes: 60,

@@ -85,6 +85,9 @@ export class Booking {
   @Column({ name: 'remaining_amount', type: 'decimal', precision: 10, scale: 2, default: 0, nullable: false })
   remainingAmount!: number;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  room!: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
