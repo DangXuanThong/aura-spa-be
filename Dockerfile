@@ -40,4 +40,4 @@ ENV CI=true
 
 EXPOSE 3000
 
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "npm run migration:run:ci && node dist/main"]
