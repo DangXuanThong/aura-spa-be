@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
 import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
@@ -33,6 +33,7 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // UC21 — Submit schedule request
@@ -203,20 +204,25 @@ export class ScheduleService {
     await this.assertManagerAtBranch(managerId, request.branchId);
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
 
-    await this.staffScheduleRepo.save(
-      this.staffScheduleRepo.create({
-        staffId: request.staffId,
-        branchId: request.branchId,
-        startTime: request.requestedStart,
-        endTime: request.requestedEnd,
-        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
-        status: ScheduleStatus.Active,
-        sourceRequestId: request.id,
-        createdBy: managerId,
-      }),
-    );
+    // The request's approval and the shift it creates must commit together — an
+    // approved request with no shift (or a shift with no approval record) is inconsistent.
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(ScheduleRequest, id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
+
+      await manager.save(
+        manager.create(StaffSchedule, {
+          staffId: request.staffId,
+          branchId: request.branchId,
+          startTime: request.requestedStart,
+          endTime: request.requestedEnd,
+          scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
+          status: ScheduleStatus.Active,
+          sourceRequestId: request.id,
+          createdBy: managerId,
+        }),
+      );
+    });
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }
@@ -290,9 +296,9 @@ export class ScheduleService {
     if (staffIds.length > 0) {
       const ratingsRaw = await this.bookingRepo.query(
         `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
-           FROM reviews
-           WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
-           GROUP BY technician_id`,
+         FROM reviews
+         WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
+         GROUP BY technician_id`,
         staffIds,
       );
       for (const item of ratingsRaw) {

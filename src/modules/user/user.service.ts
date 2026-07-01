@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 
 export interface FindUserByEmailOptions {
@@ -31,9 +31,9 @@ export class UserService {
     const result = await this.dataSource.query(
       `SELECT bs.branch_id as "branchId", b.code as "branchCode"
        FROM branch_staff bs
-       JOIN branches b ON bs.branch_id = b.id
+              JOIN branches b ON bs.branch_id = b.id
        WHERE bs.user_id = $1 AND bs.status = 'active'
-       LIMIT 1`,
+         LIMIT 1`,
       [userId],
     );
     if (result && result.length > 0) {
@@ -47,7 +47,7 @@ export class UserService {
 
   async findByEmail(email: string, options?: FindUserByEmailOptions): Promise<User | null> {
     const normalizedEmail = email.trim().toLowerCase();
-    let user: User | null = null;
+    let user: User | null;
 
     if (options?.includePasswordHash) {
       user = await this.userRepository
@@ -81,19 +81,25 @@ export class UserService {
     return user;
   }
 
-  async create(data: CreateUserData): Promise<User> {
-    const user = this.userRepository.create(data);
-    return this.userRepository.save(user);
+  async create(data: CreateUserData, manager?: EntityManager): Promise<User> {
+    const repo = manager ? manager.getRepository(User) : this.userRepository;
+    const user = repo.create(data);
+    return repo.save(user);
   }
 
-  async update(id: string, data: Partial<User>): Promise<User> {
-    await this.userRepository.update(id, data);
-    // findById will never return null here since we just updated a known user
-    return (await this.findById(id)) as User;
+  async update(id: string, data: Partial<User>, manager?: EntityManager): Promise<User> {
+    if (!manager) {
+      await this.userRepository.update(id, data);
+      // findById will never return null here since we just updated a known user
+      return (await this.findById(id)) as User;
+    }
+    const repo = manager.getRepository(User);
+    await repo.update(id, data);
+    // repo.findOne will never return null here since we just updated a known user
+    return (await repo.findOne({ where: { id } })) as User;
   }
 
   async updateLastLogin(id: string): Promise<void> {
     await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 }
-

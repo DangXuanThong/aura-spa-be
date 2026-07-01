@@ -67,8 +67,7 @@ export class PaymentService {
       const paidAmount = parseFloat(booking.paidAmount as unknown as string);
       const totalAmount = subtotal - discountAmount;
       const remainingAmount = Math.max(0, totalAmount - paidAmount);
-      const syncedStatus =
-        remainingAmount <= 0 ? InvoiceStatus.Paid : paidAmount > 0 ? InvoiceStatus.PartiallyPaid : existing.status;
+      const syncedStatus = remainingAmount <= 0 ? InvoiceStatus.Paid : paidAmount > 0 ? InvoiceStatus.PartiallyPaid : existing.status;
 
       if (
         parseFloat(existing.paidAmount as unknown as string) !== paidAmount ||

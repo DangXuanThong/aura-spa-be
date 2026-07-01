@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { DataSource } from 'typeorm';
 import { ERROR_CODES } from 'src/common/constants/error-codes';
 import { UserService } from 'src/modules/user/user.service';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
@@ -23,6 +24,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly otpService: OtpService,
     private readonly mailService: MailService,
+    private readonly dataSource: DataSource,
   ) {}
 
   // UC01 — Register Account
@@ -42,19 +44,30 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const normalizedEmail = dto.email.trim().toLowerCase();
 
-    const user = await this.userService.create({
-      fullName: dto.fullName,
-      email: normalizedEmail,
-      phone: dto.phone ?? null,
-      passwordHash,
-      authProvider: AuthProvider.Email,
-      status: UserStatus.PendingVerification,
-      gender: dto.gender ?? Gender.Unknown,
-      dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-      address: dto.address ?? null,
+    // User row + OTP row must be created together: an OTP that outlives its user (or
+    // a verification-pending user with no usable OTP) would strand the registration.
+    const { user, otp } = await this.dataSource.transaction(async (manager) => {
+      const user = await this.userService.create(
+        {
+          fullName: dto.fullName,
+          email: normalizedEmail,
+          phone: dto.phone ?? null,
+          passwordHash,
+          authProvider: AuthProvider.Email,
+          status: UserStatus.PendingVerification,
+          gender: dto.gender ?? Gender.Unknown,
+          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+          address: dto.address ?? null,
+        },
+        manager,
+      );
+
+      const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'register', manager);
+
+      return { user, otp };
     });
 
-    const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'register');
+    // Sending mail is an external side effect — only do it once the transaction has committed.
     await this.mailService.sendOtpEmail(normalizedEmail, otp);
 
     return this.toProfileDto(user);
@@ -144,9 +157,11 @@ export class AuthService {
       throw new HttpException({ code: ERROR_CODES.VALIDATION_ERROR, message: 'Account is already verified' }, HttpStatus.BAD_REQUEST);
     }
 
-    await this.otpService.verifyOtp(normalizedEmail, 'register', otp);
+    const updated = await this.dataSource.transaction(async (manager) => {
+      await this.otpService.verifyOtp(normalizedEmail, 'register', otp, manager);
+      return this.userService.update(user.id, { status: UserStatus.Active }, manager);
+    });
 
-    const updated = await this.userService.update(user.id, { status: UserStatus.Active });
     return this.toProfileDto(updated);
   }
 
@@ -215,14 +230,16 @@ export class AuthService {
       throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
     }
 
-    await this.otpService.verifyOtp(normalizedEmail, 'reset_password', otp);
-
-    const updates: Partial<User> = { passwordHash: await bcrypt.hash(newPassword, 12) };
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    const updates: Partial<User> = { passwordHash: newPasswordHash };
     if (user.status === UserStatus.PendingVerification) {
       updates.status = UserStatus.Active;
     }
 
-    await this.userService.update(user.id, updates);
+    await this.dataSource.transaction(async (manager) => {
+      await this.otpService.verifyOtp(normalizedEmail, 'reset_password', otp, manager);
+      await this.userService.update(user.id, updates, manager);
+    });
   }
 
   async resendOtp(email: string): Promise<void> {

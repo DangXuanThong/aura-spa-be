@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { User } from 'src/modules/user/entities/user.entity';
@@ -17,6 +17,7 @@ export class ConversationService {
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // UC08 — Guest Submit Online Inquiry
@@ -31,29 +32,33 @@ export class ConversationService {
       }
     }
 
-    const conversation = await this.conversationRepo.save(
-      this.conversationRepo.create({
-        customerId,
-        guestName: dto.guestName,
-        guestEmail: dto.guestEmail,
-        guestPhone: dto.guestPhone,
-        branchId: dto.branchId ?? null,
-        subject: dto.subject,
-        status: ConversationStatus.Open,
-      }),
-    );
+    // A conversation with no opening message (or an orphaned message with no
+    // conversation) would be unusable — create both rows atomically.
+    return this.dataSource.transaction(async (manager) => {
+      const conversation = await manager.save(
+        manager.create(Conversation, {
+          customerId,
+          guestName: dto.guestName,
+          guestEmail: dto.guestEmail,
+          guestPhone: dto.guestPhone,
+          branchId: dto.branchId ?? null,
+          subject: dto.subject,
+          status: ConversationStatus.Open,
+        }),
+      );
 
-    const message = await this.messageRepo.save(
-      this.messageRepo.create({
-        conversationId: conversation.id,
-        senderType: SenderType.Guest,
-        senderUserId: null,
-        message: dto.initialMessage,
-        attachments: null,
-      }),
-    );
+      const message = await manager.save(
+        manager.create(Message, {
+          conversationId: conversation.id,
+          senderType: SenderType.Guest,
+          senderUserId: null,
+          message: dto.initialMessage,
+          attachments: null,
+        }),
+      );
 
-    return { conversation, message };
+      return { conversation, message };
+    });
   }
 
   async findOne(id: string): Promise<Conversation> {
@@ -75,20 +80,23 @@ export class ConversationService {
 
   async sendGuestMessage(conversationId: string, text: string): Promise<Message> {
     const conversation = await this.findOne(conversationId);
-    if (conversation.status === ConversationStatus.Closed) {
-      conversation.status = ConversationStatus.Open;
-      conversation.assignedStaffId = null;
-      await this.conversationRepo.save(conversation);
-    }
-    return this.messageRepo.save(
-      this.messageRepo.create({
-        conversationId,
-        senderType: SenderType.Guest,
-        senderUserId: null,
-        message: text,
-        attachments: null,
-      }),
-    );
+
+    return this.dataSource.transaction(async (manager) => {
+      if (conversation.status === ConversationStatus.Closed) {
+        conversation.status = ConversationStatus.Open;
+        conversation.assignedStaffId = null;
+        await manager.save(conversation);
+      }
+      return manager.save(
+        manager.create(Message, {
+          conversationId,
+          senderType: SenderType.Guest,
+          senderUserId: null,
+          message: text,
+          attachments: null,
+        }),
+      );
+    });
   }
 
   // Staff-facing routes
@@ -112,7 +120,7 @@ export class ConversationService {
            AND status = 'active'
            AND start_time <= $2
            AND end_time >= $2
-         LIMIT 1`,
+           LIMIT 1`,
         [requesterId, now],
       );
       const isOnShift = shift && shift.length > 0;
@@ -168,7 +176,7 @@ export class ConversationService {
         const managerAssignment = await this.messageRepo.manager.query(
           `SELECT user_id FROM branch_staff
            WHERE branch_id = $1 AND position = 'manager' AND status = 'active'
-           LIMIT 1`,
+             LIMIT 1`,
           [conversation.branchId],
         );
         if (managerAssignment && managerAssignment.length > 0) {
@@ -192,29 +200,29 @@ export class ConversationService {
     const conversation = await this.findOne(conversationId);
     this.assertCanHandleConversation(conversation, staffUserId, staffRole);
 
-    if (conversation.status === ConversationStatus.Open) {
-      conversation.status = ConversationStatus.Assigned;
-      conversation.assignedStaffId = staffUserId;
-      if (!conversation.branchId) {
-        const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
-          staffUserId,
-        ]);
-        if (bs && bs.length > 0) {
-          conversation.branchId = bs[0].branch_id;
+    const message = await this.dataSource.transaction(async (manager) => {
+      if (conversation.status === ConversationStatus.Open) {
+        conversation.status = ConversationStatus.Assigned;
+        conversation.assignedStaffId = staffUserId;
+        if (!conversation.branchId) {
+          const bs = await manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [staffUserId]);
+          if (bs && bs.length > 0) {
+            conversation.branchId = bs[0].branch_id;
+          }
         }
+        await manager.save(conversation);
       }
-      await this.conversationRepo.save(conversation);
-    }
 
-    const message = await this.messageRepo.save(
-      this.messageRepo.create({
-        conversationId,
-        senderType: SenderType.Staff,
-        senderUserId: staffUserId,
-        message: text,
-        attachments: null,
-      }),
-    );
+      return manager.save(
+        manager.create(Message, {
+          conversationId,
+          senderType: SenderType.Staff,
+          senderUserId: staffUserId,
+          message: text,
+          attachments: null,
+        }),
+      );
+    });
 
     const staffUser = await this.messageRepo.manager.findOne(User, { where: { id: staffUserId } });
     if (staffUser) {
