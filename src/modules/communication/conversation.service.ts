@@ -104,23 +104,10 @@ export class ConversationService {
     }
 
     if (requesterRole === UserRole.Staff && requesterId) {
-      const now = new Date();
-      const shift = await this.conversationRepo.manager.query(
-        `SELECT id FROM staff_schedules
-         WHERE staff_id = $1
-           AND schedule_type = 'working'
-           AND status = 'active'
-           AND start_time <= $2
-           AND end_time >= $2
-         LIMIT 1`,
-        [requesterId, now],
-      );
-      const isOnShift = shift && shift.length > 0;
-
       const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
         requesterId,
       ]);
-      if (isOnShift && bs && bs.length > 0) {
+      if (bs && bs.length > 0) {
         const staffBranchId = bs[0].branch_id;
         query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId = :staffBranchId))', {
           openStatus: ConversationStatus.Open,
