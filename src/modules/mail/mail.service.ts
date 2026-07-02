@@ -17,7 +17,7 @@ export class MailService {
 
   async sendWelcomeEmail(to: string, fullName: string, password: string): Promise<void> {
     if (this.driver === 'console') {
-      this.logger.warn(`MAIL_DRIVER=console; Welcome email for ${to} — password: ${password}`);
+      this.logger.warn(`MAIL_DRIVER=console; Welcome email for ${to} (password omitted from log)`);
       return;
     }
 
@@ -34,8 +34,7 @@ export class MailService {
     });
 
     if (error) {
-      this.logger.error(`Failed to send welcome email to ${to}`, error);
-      throw new Error(error.message);
+      this.logger.error(`Failed to send welcome email to ${to}: ${error.message}`);
     }
   }
 
@@ -60,7 +59,7 @@ export class MailService {
     });
 
     if (error) {
-      this.logger.error(`Failed to send OTP email to ${to}`, error);
+      this.logger.error(`Failed to send OTP email to ${to}: ${error.message}`);
       throw new Error(error.message);
     }
   }

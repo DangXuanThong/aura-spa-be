@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
 import { Booking } from './entities/booking.entity';
 import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
@@ -90,9 +90,62 @@ export class BookingAvailabilityService {
       .andWhere('b.status NOT IN (:...cancelled)', { cancelled: CANCELLED_STATUSES })
       .getMany();
 
-    // Generate slots and compute availability
+    // Pre-load technician availability for the entire day — replaces per-slot DB queries (BUG-045)
+    let allTechnicians: BranchStaff[] = [];
+    let techShifts: ScheduleRequest[] = [];
+    let techBookings: Booking[] = [];
+
+    if (technicianId) {
+      [techShifts, techBookings] = await Promise.all([
+        this.scheduleRequestRepo
+          .createQueryBuilder('sr')
+          .where('sr.staffId = :technicianId', { technicianId })
+          .andWhere('sr.branchId = :branchId', { branchId })
+          .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+          .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+          .andWhere('sr.requestedStart < :dayEnd', { dayEnd })
+          .andWhere('sr.requestedEnd > :dayStart', { dayStart })
+          .getMany(),
+        this.bookingRepo
+          .createQueryBuilder('b')
+          .where('b.technicianId = :technicianId', { technicianId })
+          .andWhere('b.startTime < :dayEnd', { dayEnd })
+          .andWhere('b.endTime > :dayStart', { dayStart })
+          .andWhere('b.status NOT IN (:...cancelled)', { cancelled: CANCELLED_STATUSES })
+          .getMany(),
+      ]);
+    } else {
+      allTechnicians = await this.branchStaffRepo.find({
+        where: { branchId, position: StaffPosition.Technician, status: StaffStatus.Active },
+        order: { staffCode: 'ASC' },
+      });
+      if (allTechnicians.length > 0) {
+        const techIds = allTechnicians.map(t => t.userId);
+        [techShifts, techBookings] = await Promise.all([
+          this.scheduleRequestRepo
+            .createQueryBuilder('sr')
+            .where('sr.staffId IN (:...techIds)', { techIds })
+            .andWhere('sr.branchId = :branchId', { branchId })
+            .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+            .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+            .andWhere('sr.requestedStart < :dayEnd', { dayEnd })
+            .andWhere('sr.requestedEnd > :dayStart', { dayStart })
+            .getMany(),
+          this.bookingRepo
+            .createQueryBuilder('b')
+            .where('b.technicianId IN (:...techIds)', { techIds })
+            .andWhere('b.startTime < :dayEnd', { dayEnd })
+            .andWhere('b.endTime > :dayStart', { dayStart })
+            .andWhere('b.status NOT IN (:...cancelled)', { cancelled: CANCELLED_STATUSES })
+            .getMany(),
+        ]);
+      }
+    }
+
+    // Generate slots and compute availability in-memory
     const startMin = timeToMinutes(slotConfig.startTime);
     const endMin = timeToMinutes(slotConfig.endTime);
+    const now = new Date();
     const slots: TimeSlotDto[] = [];
 
     for (let t = startMin; t + durationMinutes <= endMin; t += slotConfig.slotMinutes) {
@@ -101,14 +154,15 @@ export class BookingAvailabilityService {
 
       const overlapping = dayBookings.filter((b) => b.startTime < slotEnd && b.endTime > slotStart);
       const remaining = Math.max(0, slotConfig.maxBookings - overlapping.length);
+      const isFutureSlot = slotStart > now;
       const technicianAvailable = technicianId
-        ? await this.isTechnicianAvailable(technicianId, branchId, slotStart, slotEnd)
-        : await this.hasAvailableTechnician(branchId, slotStart, slotEnd);
+        ? this.isTechAvailable(technicianId, techShifts, techBookings, slotStart, slotEnd)
+        : this.hasAvailableTech(allTechnicians, techShifts, techBookings, slotStart, slotEnd);
 
       slots.push({
         startTime: minutesToTimeStr(t),
         endTime: minutesToTimeStr(t + durationMinutes),
-        available: remaining > 0 && technicianAvailable,
+        available: isFutureSlot && remaining > 0 && technicianAvailable,
         remainingCapacity: remaining,
         maxCapacity: slotConfig.maxBookings,
       });
@@ -117,45 +171,31 @@ export class BookingAvailabilityService {
     return { branchId, serviceId, date, serviceDurationMinutes: durationMinutes, slots };
   }
 
-  private async hasAvailableTechnician(branchId: string, startTime: Date, endTime: Date): Promise<boolean> {
-    const technicians = await this.branchStaffRepo.find({
-      where: {
-        branchId,
-        position: StaffPosition.Technician,
-        status: StaffStatus.Active,
-      },
-      order: { staffCode: 'ASC' },
-    });
-
-    for (const technician of technicians) {
-      if (await this.isTechnicianAvailable(technician.userId, branchId, startTime, endTime)) {
-        return true;
-      }
-    }
-
-    return false;
+  private isTechAvailable(
+    techId: string,
+    shifts: ScheduleRequest[],
+    bookings: Booking[],
+    slotStart: Date,
+    slotEnd: Date,
+  ): boolean {
+    const covered = shifts.some(
+      s => s.staffId === techId && s.requestedStart <= slotStart && s.requestedEnd >= slotEnd,
+    );
+    if (!covered) return false;
+    return !bookings.some(
+      b => b.technicianId === techId && b.startTime < slotEnd && b.endTime > slotStart,
+    );
   }
 
-  private async isTechnicianAvailable(technicianId: string, branchId: string, startTime: Date, endTime: Date): Promise<boolean> {
-    const shiftCount = await this.scheduleRequestRepo
-      .createQueryBuilder('sr')
-      .where('sr.staffId = :technicianId', { technicianId })
-      .andWhere('sr.branchId = :branchId', { branchId })
-      .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
-      .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
-      .andWhere('sr.requestedStart <= :start', { start: startTime })
-      .andWhere('sr.requestedEnd >= :end', { end: endTime })
-      .getCount();
-    if (shiftCount === 0) return false;
-
-    const overlapCount = await this.bookingRepo
-      .createQueryBuilder('b')
-      .where('b.technicianId = :technicianId', { technicianId })
-      .andWhere('b.startTime < :endTime', { endTime })
-      .andWhere('b.endTime > :startTime', { startTime })
-      .andWhere('b.status NOT IN (:...cancelled)', { cancelled: CANCELLED_STATUSES })
-      .getCount();
-
-    return overlapCount === 0;
+  private hasAvailableTech(
+    technicians: BranchStaff[],
+    shifts: ScheduleRequest[],
+    bookings: Booking[],
+    slotStart: Date,
+    slotEnd: Date,
+  ): boolean {
+    return technicians.some(t =>
+      this.isTechAvailable(t.userId, shifts, bookings, slotStart, slotEnd),
+    );
   }
 }

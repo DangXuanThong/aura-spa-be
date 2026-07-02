@@ -14,17 +14,31 @@ import { HealthRecordResponseDto } from './dto/health-record-response.dto';
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
-  // ── Staff: view (UC20 — Update Customer Health Record) ──────────────────
+  // ── Customer: view own health records ───────────────────────────────────
+
+  @Get('my')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'All health records for the authenticated customer', type: [HealthRecordResponseDto] })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Customer role required' })
+  async findMine(@Request() req: any): Promise<HealthRecordResponseDto[]> {
+    const records = await this.healthService.findMyRecord(req.user.id);
+    return plainToInstance(HealthRecordResponseDto, records);
+  }
+
+  // ── Staff/Manager/Owner: view (UC20 — Update Customer Health Record) ───────
 
   @Get('customer/:customerId')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Staff)
+  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)
   @ApiBearerAuth('access-token')
-  @ApiOkResponse({ description: 'All health records for the given customer', type: [HealthRecordResponseDto] })
+  @ApiOkResponse({ description: 'Health records for the given customer. Staff/Manager scoped to their branches; Owner sees all.', type: [HealthRecordResponseDto] })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-  @ApiForbiddenResponse({ description: 'Staff role required' })
-  async findByCustomer(@Param('customerId') customerId: string): Promise<HealthRecordResponseDto[]> {
-    const records = await this.healthService.findByCustomer(customerId);
+  @ApiForbiddenResponse({ description: 'Staff, Manager or Owner role required' })
+  async findByCustomer(@Param('customerId') customerId: string, @Request() req: any): Promise<HealthRecordResponseDto[]> {
+    const records = await this.healthService.findByCustomer(customerId, req.user.id, req.user.role);
     return plainToInstance(HealthRecordResponseDto, records);
   }
 

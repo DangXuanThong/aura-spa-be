@@ -21,7 +21,7 @@ function readDatabaseEnvironment(): DatabaseEnvironment {
     port: readNumber(process.env.POSTGRES_PORT, 5432),
     username: process.env.POSTGRES_USER ?? 'postgres',
     password: process.env.POSTGRES_PASSWORD ?? 'postgres',
-    database: process.env.POSTGRES_NAME ?? 'aura_spa',
+    database: process.env.POSTGRES_DB ?? process.env.POSTGRES_NAME ?? 'aura_spa',
     sslEnabled: process.env.POSTGRES_SSL === 'true',
   };
 }

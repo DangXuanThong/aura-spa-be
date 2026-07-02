@@ -22,6 +22,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
 
   database:
     container_name: app_postgres_dev
@@ -34,7 +35,7 @@ services:
     ports:
       - '127.0.0.1:5432:5432'
     healthcheck:
-      test: pg_isready -U ${POSTGRES_USER:-postgres}
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aura_spa}"]
       interval: 10s
       timeout: 5s
       retries: 5

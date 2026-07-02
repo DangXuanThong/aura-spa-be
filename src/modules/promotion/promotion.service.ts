@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Promotion } from './entities/promotion.entity';
 import { DiscountCode } from './entities/discount-code.entity';
 import { CreatePromotionDto } from './dto/create-promotion.dto';
@@ -8,6 +8,7 @@ import { UpdatePromotionDto } from './dto/update-promotion.dto';
 import { CreateDiscountCodeDto } from './dto/create-discount-code.dto';
 import { UpdateDiscountCodeDto } from './dto/update-discount-code.dto';
 import { PromotionStatus } from './enums/promotion-status.enum';
+import { DiscountType } from './enums/discount-type.enum';
 
 @Injectable()
 export class PromotionService {
@@ -23,13 +24,24 @@ export class PromotionService {
       throw new BadRequestException('endsAt must be after startsAt');
     }
 
+    if (dto.discountType === DiscountType.Percentage && dto.discountValue > 100) {
+      throw new BadRequestException('Percentage discount value must be between 0 and 100');
+    }
+
     const existing = await this.repo.findOne({ where: { code: dto.code } });
     if (existing) {
-      throw new BadRequestException(`Promotion code "${dto.code}" already exists`);
+      throw new ConflictException(`Promotion code "${dto.code}" already exists`);
     }
 
     const promotion = this.repo.create(dto);
-    return this.repo.save(promotion);
+    try {
+      return await this.repo.save(promotion);
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as any).code === '23505') {
+        throw new ConflictException(`Promotion code "${dto.code}" already exists`);
+      }
+      throw err;
+    }
   }
 
   // UC07 — Guest View Promotions
@@ -53,7 +65,7 @@ export class PromotionService {
       query.andWhere('(p.branchId IS NULL OR p.branchId = :branchId)', { branchId });
     }
 
-    return query.orderBy('p.startsAt', 'ASC').getMany();
+    return query.orderBy('p.startsAt', 'ASC').take(200).getMany();
   }
 
   async findOne(id: string): Promise<Promotion> {
@@ -72,6 +84,12 @@ export class PromotionService {
       if (existing) {
         throw new BadRequestException(`Promotion code "${dto.code}" already exists`);
       }
+    }
+
+    const effectiveType = dto.discountType ?? promotion.discountType;
+    const effectiveValue = dto.discountValue ?? promotion.discountValue;
+    if (effectiveType === DiscountType.Percentage && effectiveValue > 100) {
+      throw new BadRequestException('Percentage discount value must be between 0 and 100');
     }
 
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : promotion.startsAt;
@@ -93,7 +111,7 @@ export class PromotionService {
   async findAllForOwner(status?: PromotionStatus): Promise<Promotion[]> {
     const query = this.repo.createQueryBuilder('p');
     if (status) query.where('p.status = :status', { status });
-    return query.orderBy('p.startsAt', 'ASC').getMany();
+    return query.orderBy('p.startsAt', 'ASC').take(200).getMany();
   }
 
   // UC35 — Owner: list discount codes for a promotion
@@ -102,6 +120,7 @@ export class PromotionService {
     return this.codeRepo.find({
       where: { promotionId },
       order: { createdAt: 'ASC' },
+      take: 500,
     });
   }
 
@@ -113,7 +132,14 @@ export class PromotionService {
     if (existing) throw new ConflictException(`Discount code "${dto.code}" already exists`);
 
     const entity = this.codeRepo.create({ ...dto, promotionId });
-    return this.codeRepo.save(entity);
+    try {
+      return await this.codeRepo.save(entity);
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as any).code === '23505') {
+        throw new ConflictException(`Discount code "${dto.code}" already exists`);
+      }
+      throw err;
+    }
   }
 
   // UC35 — Owner: update a discount code

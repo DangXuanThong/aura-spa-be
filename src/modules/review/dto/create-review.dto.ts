@@ -7,6 +7,11 @@ export class CreateReviewDto {
   @IsString()
   bookingId!: string;
 
+  @ApiPropertyOptional({ example: '5', description: 'Service ID for multi-service bookings. Omit for single-service bookings.' })
+  @IsOptional()
+  @IsString()
+  serviceId?: string;
+
   @ApiProperty({ example: 5, description: 'Rating from 1 (worst) to 5 (best)', minimum: 1, maximum: 5 })
   @IsInt()
   @Min(1)

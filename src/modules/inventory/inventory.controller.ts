@@ -23,10 +23,10 @@ import { InventoryItem } from './entities/inventory-item.entity';
 @ApiTags('Inventory')
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.Manager)
+@Roles(UserRole.Manager, UserRole.Owner)
 @ApiBearerAuth('access-token')
 @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-@ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+@ApiForbiddenResponse({ description: 'Manager or Owner role required' })
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
@@ -35,7 +35,7 @@ export class InventoryController {
   @Get('branch/:branchId')
   @ApiOkResponse({ description: 'Current stock levels for the branch', type: [BranchInventoryResponseDto] })
   async listByBranch(@Param('branchId') branchId: string, @Request() req: any): Promise<BranchInventoryResponseDto[]> {
-    const rows = await this.inventoryService.listByBranch(branchId, req.user.id);
+    const rows = await this.inventoryService.listByBranch(branchId, req.user.id, req.user.role);
     return rows.map((row) => {
       const dto = plainToInstance(BranchInventoryResponseDto, row);
       const minLevel = row.inventoryItem ? parseFloat((row.inventoryItem as InventoryItem).minStockLevel as unknown as string) : null;
@@ -53,7 +53,7 @@ export class InventoryController {
   @ApiBadRequestResponse({ description: 'Invalid quantity' })
   @ApiNotFoundResponse({ description: 'Inventory item not found at this branch' })
   async importStock(@Param('branchId') branchId: string, @Body() dto: ImportStockDto, @Request() req: any): Promise<InventoryTransactionResponseDto> {
-    const tx = await this.inventoryService.importStock(branchId, dto, req.user.id);
+    const tx = await this.inventoryService.importStock(branchId, dto, req.user.id, req.user.role);
     return plainToInstance(InventoryTransactionResponseDto, tx);
   }
 
@@ -69,7 +69,7 @@ export class InventoryController {
     @Body() dto: ConsumeStockDto,
     @Request() req: any,
   ): Promise<InventoryTransactionResponseDto> {
-    const tx = await this.inventoryService.consumeStock(branchId, dto, req.user.id);
+    const tx = await this.inventoryService.consumeStock(branchId, dto, req.user.id, req.user.role);
     return plainToInstance(InventoryTransactionResponseDto, tx);
   }
 
@@ -81,7 +81,7 @@ export class InventoryController {
   @ApiBadRequestResponse({ description: 'Invalid quantity' })
   @ApiNotFoundResponse({ description: 'Inventory item not found at this branch' })
   async stockCheck(@Param('branchId') branchId: string, @Body() dto: StockCheckDto, @Request() req: any): Promise<InventoryTransactionResponseDto> {
-    const tx = await this.inventoryService.stockCheck(branchId, dto, req.user.id);
+    const tx = await this.inventoryService.stockCheck(branchId, dto, req.user.id, req.user.role);
     return plainToInstance(InventoryTransactionResponseDto, tx);
   }
 }

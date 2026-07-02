@@ -1,10 +1,15 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as bcrypt from 'bcryptjs';
+import { QueryFailedError } from 'typeorm';
 import { ERROR_CODES } from 'src/common/constants/error-codes';
+import { AUTH_EVENTS } from 'src/common/constants/events';
 import { UserService } from 'src/modules/user/user.service';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { UserStatus } from 'src/modules/user/enums/user-status.enum';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -18,12 +23,21 @@ import { GoogleProfile } from './strategies/google.strategy';
 
 @Injectable()
 export class AuthService {
+  // In-memory token blacklist for MVP — cleared on server restart, sufficient for single-instance deployments
+  private readonly tokenBlacklist = new Set<string>();
+
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
     private readonly otpService: OtpService,
     private readonly mailService: MailService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
+
+  isTokenBlacklisted(token: string): boolean {
+    return this.tokenBlacklist.has(token);
+  }
 
   // UC01 — Register Account
   async register(dto: RegisterDto): Promise<UserProfileDto> {
@@ -42,20 +56,34 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const normalizedEmail = dto.email.trim().toLowerCase();
 
-    const user = await this.userService.create({
-      fullName: dto.fullName,
-      email: normalizedEmail,
-      phone: dto.phone ?? null,
-      passwordHash,
-      authProvider: AuthProvider.Email,
-      status: UserStatus.PendingVerification,
-      gender: dto.gender ?? Gender.Unknown,
-      dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-      address: dto.address ?? null,
-    });
+    let user;
+    try {
+      user = await this.userService.create({
+        fullName: dto.fullName,
+        email: normalizedEmail,
+        phone: dto.phone ?? null,
+        passwordHash,
+        authProvider: AuthProvider.Email,
+        status: UserStatus.PendingVerification,
+        gender: dto.gender ?? Gender.Unknown,
+        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+        address: dto.address ?? null,
+      });
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as any).code === '23505') {
+        throw new HttpException(
+          { code: ERROR_CODES.EMAIL_ALREADY_EXISTS, message: 'Email or phone number is already in use' },
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw err;
+    }
 
     const otp = await this.otpService.createOtp(user.id, normalizedEmail, 'email', 'register');
     await this.mailService.sendOtpEmail(normalizedEmail, otp);
+
+    // Allow conversation module to retroactively link any guest conversations with the same email
+    this.eventEmitter.emit(AUTH_EVENTS.USER_REGISTERED, { userId: user.id, email: normalizedEmail });
 
     return this.toProfileDto(user);
   }
@@ -68,8 +96,38 @@ export class AuthService {
       throw new HttpException({ code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Invalid credentials' }, HttpStatus.UNAUTHORIZED);
     }
 
+    if (user.loginLockUntil && user.loginLockUntil.getTime() > Date.now()) {
+      throw new HttpException(
+        { code: 'ACCOUNT_LOCKED', message: 'Too many failed login attempts. Please try again later.' },
+        HttpStatus.LOCKED,
+      );
+    }
+
+    if (user.loginLockUntil && user.loginLockUntil.getTime() <= Date.now()) {
+      await this.userService.update(user.id, { failedLoginCount: 0, loginLockUntil: null });
+      user.failedLoginCount = 0;
+      user.loginLockUntil = null;
+    }
+
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
+      const failedLoginCount = (user.failedLoginCount ?? 0) + 1;
+      const lockThreshold = this.configService.get<number>('LOGIN_LOCK_THRESHOLD', 5);
+      const lockMinutes = this.configService.get<number>('LOGIN_LOCK_MINUTES', 30);
+      const shouldLock = failedLoginCount >= lockThreshold;
+
+      await this.userService.update(user.id, {
+        failedLoginCount,
+        loginLockUntil: shouldLock ? new Date(Date.now() + lockMinutes * 60 * 1000) : null,
+      });
+
+      if (shouldLock) {
+        throw new HttpException(
+          { code: 'ACCOUNT_LOCKED', message: 'Too many failed login attempts. Please try again later.' },
+          HttpStatus.LOCKED,
+        );
+      }
+
       throw new HttpException({ code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Invalid credentials' }, HttpStatus.UNAUTHORIZED);
     }
 
@@ -84,9 +142,19 @@ export class AuthService {
       throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
     }
 
-    await this.userService.updateLastLogin(user.id);
+    await this.userService.update(user.id, { failedLoginCount: 0, loginLockUntil: null, lastLoginAt: new Date() });
 
-    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
+    let branchId: string | null = null;
+    let branchCode: string | null = null;
+    if (user.role === UserRole.Staff || user.role === UserRole.Manager) {
+      const bi = await this.userService.getBranchInfo(user.id);
+      branchId = bi.branchId;
+      branchCode = bi.branchCode;
+    }
+    user.branchId = branchId;
+    user.branchCode = branchCode;
+
+    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role, branchId, branchCode };
     const accessToken = this.jwtService.sign(payload);
 
     return {
@@ -95,10 +163,11 @@ export class AuthService {
     };
   }
 
-  // UC03 — Log Out (stateless JWT: client discards token; server-side is a no-op for MVP)
-  logout(): { message: string } {
-    // For MVP with stateless JWT there is nothing to invalidate server-side.
-    // A future iteration can add a token blacklist / refresh-token revocation here.
+  // UC03 — Log Out
+  logout(token: string): { message: string } {
+    if (token) {
+      this.tokenBlacklist.add(token);
+    }
     return { message: 'Logged out successfully' };
   }
 
@@ -124,7 +193,34 @@ export class AuthService {
     if (dto.dateOfBirth !== undefined) updates.dateOfBirth = new Date(dto.dateOfBirth);
     if (dto.address !== undefined) updates.address = dto.address;
     if (dto.avatarUrl !== undefined) updates.avatarUrl = dto.avatarUrl;
+    if (dto.notificationEnabled !== undefined) updates.notificationEnabled = dto.notificationEnabled;
     if (dto.password !== undefined) {
+      if (!dto.currentPassword) {
+        throw new HttpException(
+          { code: ERROR_CODES.VALIDATION_ERROR, message: 'Current password is required to change password' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const credentialUser = user.email
+        ? await this.userService.findByEmail(user.email, { includePasswordHash: true })
+        : null;
+
+      if (!credentialUser?.passwordHash) {
+        throw new HttpException(
+          { code: ERROR_CODES.VALIDATION_ERROR, message: 'Password change requires an account with existing password credentials' },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const currentPasswordMatches = await bcrypt.compare(dto.currentPassword, credentialUser.passwordHash);
+      if (!currentPasswordMatches) {
+        throw new HttpException(
+          { code: ERROR_CODES.INVALID_CREDENTIALS, message: 'Current password is incorrect' },
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
       updates.passwordHash = await bcrypt.hash(dto.password, 12);
     }
 
@@ -183,9 +279,17 @@ export class AuthService {
       user = await this.userService.update(user.id, { avatarUrl: profile.avatarUrl });
     }
 
-    await this.userService.updateLastLogin(user.id);
+    await this.userService.update(user.id, { failedLoginCount: 0, loginLockUntil: null, lastLoginAt: new Date() });
 
-    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
+    let branchId: string | null = null;
+    let branchCode: string | null = null;
+    if (user.role === UserRole.Staff || user.role === UserRole.Manager) {
+      const bi = await this.userService.getBranchInfo(user.id);
+      branchId = bi.branchId;
+      branchCode = bi.branchCode;
+    }
+
+    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role, branchId, branchCode };
     const accessToken = this.jwtService.sign(payload);
 
     return { accessToken, user: this.toProfileDto(user) };
@@ -215,14 +319,13 @@ export class AuthService {
       throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account is suspended or deleted' }, HttpStatus.UNAUTHORIZED);
     }
 
-    await this.otpService.verifyOtp(normalizedEmail, 'reset_password', otp);
-
-    const updates: Partial<User> = { passwordHash: await bcrypt.hash(newPassword, 12) };
     if (user.status === UserStatus.PendingVerification) {
-      updates.status = UserStatus.Active;
+      throw new HttpException({ code: ERROR_CODES.ACCOUNT_INACTIVE, message: 'Account email is not verified — please verify your email before resetting your password' }, HttpStatus.FORBIDDEN);
     }
 
-    await this.userService.update(user.id, updates);
+    await this.otpService.verifyOtp(normalizedEmail, 'reset_password', otp);
+
+    await this.userService.update(user.id, { passwordHash: await bcrypt.hash(newPassword, 12) });
   }
 
   async resendOtp(email: string): Promise<void> {
@@ -254,6 +357,7 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       dateOfBirth: user.dateOfBirth,
       address: user.address,
+      notificationEnabled: user.notificationEnabled ?? true,
       branchId: user.branchId ?? null,
       branchCode: user.branchCode ?? null,
       createdAt: user.createdAt,

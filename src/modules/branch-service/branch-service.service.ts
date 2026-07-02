@@ -1,11 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { CreateBranchServiceDto } from './dto/create-branch-service.dto';
 import { UpdateBranchServiceDto } from './dto/update-branch-service.dto';
 import { BranchService } from './entities/branch-service.entity';
 import { Branch } from '../branch/entities/branch.entity';
 import { Service } from '../service/entities/service.entity';
+import { ServiceStatus } from '../service/enums/service-status.enum';
+import { BranchStatus } from '../branch/enums/branch-status.enum';
 
 @Injectable()
 export class BranchServiceService {
@@ -41,7 +43,14 @@ export class BranchServiceService {
     }
 
     const branchService = this.branchServiceRepository.create(createBranchServiceDto);
-    return this.branchServiceRepository.save(branchService);
+    try {
+      return await this.branchServiceRepository.save(branchService);
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as any).code === '23505') {
+        throw new ConflictException('This service is already assigned to this branch');
+      }
+      throw err;
+    }
   }
 
   async findAll(branchId?: string, serviceId?: string): Promise<BranchService[]> {
@@ -88,7 +97,7 @@ export class BranchServiceService {
     }
 
     return this.branchServiceRepository.find({
-      where: { branchId, isEnabled: true },
+      where: { branchId, isEnabled: true, service: { status: ServiceStatus.Active } },
       relations: ['service'],
       order: { createdAt: 'DESC' },
     });
@@ -99,9 +108,12 @@ export class BranchServiceService {
     if (!branch) {
       throw new NotFoundException(`Branch with ID ${branchId} not found`);
     }
+    if (branch.status !== BranchStatus.Active) {
+      throw new NotFoundException(`Branch ${branchId} is not currently active`);
+    }
 
     return this.branchServiceRepository.find({
-      where: { branchId, isEnabled: true },
+      where: { branchId, isEnabled: true, service: { status: ServiceStatus.Active } },
       relations: ['service'],
       order: { service: { category: 'ASC', name: 'ASC' } },
     });
@@ -123,23 +135,6 @@ export class BranchServiceService {
 
   async update(id: string, updateBranchServiceDto: UpdateBranchServiceDto): Promise<BranchService> {
     const branchService = await this.findOne(id);
-
-    // If changing service, verify new service exists and no duplicate
-    if ((updateBranchServiceDto as any).serviceId && (updateBranchServiceDto as any).serviceId !== branchService.serviceId) {
-      const service = await this.serviceRepository.findOne({ where: { id: (updateBranchServiceDto as any).serviceId } });
-      if (!service) {
-        throw new NotFoundException(`Service with ID ${(updateBranchServiceDto as any).serviceId} not found`);
-      }
-
-      const existing = await this.branchServiceRepository.findOne({
-        where: { branchId: branchService.branchId, serviceId: (updateBranchServiceDto as any).serviceId },
-      });
-
-      if (existing) {
-        throw new BadRequestException('This service is already assigned to this branch');
-      }
-    }
-
     Object.assign(branchService, updateBranchServiceDto);
     return this.branchServiceRepository.save(branchService);
   }

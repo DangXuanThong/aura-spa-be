@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Length, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUrl, Length, Matches, Min } from 'class-validator';
 import { ServiceStatus } from '../enums/service-status.enum';
 
 export class CreateServiceDto {
@@ -17,7 +17,7 @@ export class CreateServiceDto {
 
   @ApiProperty({ description: 'Service slug for URL', example: 'swedish-massage' })
   @IsNotEmpty()
-  @IsString()
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'slug must contain only lowercase letters, digits, and hyphens (no leading/trailing hyphens)' })
   @Length(1, 255)
   slug!: string;
 
@@ -34,7 +34,7 @@ export class CreateServiceDto {
 
   @ApiPropertyOptional({ description: 'Service illustration image URL' })
   @IsOptional()
-  @IsString()
+  @IsUrl()
   imageUrl?: string;
 
   @ApiProperty({ description: 'Default duration in minutes', example: 60 })
@@ -51,7 +51,7 @@ export class CreateServiceDto {
 
   @ApiPropertyOptional({ description: 'Service status', enum: ServiceStatus, default: ServiceStatus.Active })
   @IsOptional()
-  @IsString()
+  @IsEnum(ServiceStatus)
   status?: ServiceStatus;
 
   @ApiPropertyOptional({ description: 'Is multi-session service', example: false })

@@ -1,10 +1,13 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { vietnamDate } from 'src/common/utils/vietnam-date';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
 import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { Review } from 'src/modules/review/entities/review.entity';
+import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { ApprovalStatus } from './enums/approval-status.enum';
 import { ScheduleRequestType } from './enums/schedule-request-type.enum';
 import { ScheduleStatus } from './enums/schedule-status.enum';
@@ -33,6 +36,9 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(Review)
+    private readonly reviewRepo: Repository<Review>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // UC21 — Submit schedule request
@@ -53,6 +59,20 @@ export class ScheduleService {
     }
     if (start <= new Date()) {
       throw new BadRequestException('requestedStart must be in the future');
+    }
+
+    // 3. No overlapping pending requests for this staff at this branch
+    const overlap = await this.scheduleRequestRepo.findOne({
+      where: {
+        staffId,
+        branchId: dto.branchId,
+        status: ApprovalStatus.Pending,
+        requestedStart: LessThan(end),
+        requestedEnd: MoreThan(start),
+      },
+    });
+    if (overlap) {
+      throw new ConflictException('You already have a pending schedule request that overlaps this time range');
     }
 
     return this.scheduleRequestRepo.save(
@@ -124,24 +144,23 @@ export class ScheduleService {
         const dayEnd = new Date(`${key}T23:59:59.999Z`);
         if (shift.requestedStart >= dayEnd || shift.requestedEnd <= dayStart) continue;
 
-        const startTime = new Date(dayStart);
-        startTime.setUTCHours(shift.requestedStart.getUTCHours(), shift.requestedStart.getUTCMinutes(), 0, 0);
-        const endTime = new Date(dayStart);
-        endTime.setUTCHours(shift.requestedEnd.getUTCHours(), shift.requestedEnd.getUTCMinutes(), 0, 0);
+        // Clamp shift bounds to the current day window — handles overnight shifts correctly
+        const startTime = shift.requestedStart > dayStart ? shift.requestedStart : dayStart;
+        const endTime = shift.requestedEnd < dayEnd ? shift.requestedEnd : dayEnd;
 
         const dto = new StaffShiftResponseDto();
         dto.id = shift.id;
         dto.branchId = shift.branchId;
         dto.scheduleType = REQUEST_TYPE_TO_SCHEDULE_TYPE[shift.requestType];
         dto.status = ScheduleStatus.Active;
-        dto.startTime = startTime < shift.requestedStart ? shift.requestedStart : startTime;
-        dto.endTime = endTime > shift.requestedEnd ? shift.requestedEnd : endTime;
+        dto.startTime = startTime;
+        dto.endTime = endTime;
         day.shifts.push(dto);
       }
     }
 
     for (const booking of bookings) {
-      const key = booking.startTime.toISOString().slice(0, 10);
+      const key = vietnamDate.toDateString(booking.startTime);
       const day = dayMap.get(key);
       if (!day) continue;
       const dto = new TimetableAppointmentDto();
@@ -196,27 +215,39 @@ export class ScheduleService {
   async approve(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
-    if (request.status !== ApprovalStatus.Pending) {
-      throw new BadRequestException('Only pending requests can be approved');
-    }
 
     await this.assertManagerAtBranch(managerId, request.branchId);
 
-    const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
+    await this.dataSource.transaction(async (manager) => {
+      const locked = await manager.findOne(ScheduleRequest, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) throw new NotFoundException('Schedule request not found');
+      if (locked.status !== ApprovalStatus.Pending) {
+        throw new BadRequestException('Only pending requests can be approved');
+      }
 
-    await this.staffScheduleRepo.save(
-      this.staffScheduleRepo.create({
-        staffId: request.staffId,
-        branchId: request.branchId,
-        startTime: request.requestedStart,
-        endTime: request.requestedEnd,
-        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
-        status: ScheduleStatus.Active,
-        sourceRequestId: request.id,
-        createdBy: managerId,
-      }),
-    );
+      const now = new Date();
+      await manager.update(ScheduleRequest, id, {
+        status: ApprovalStatus.Approved,
+        reviewedBy: managerId,
+        reviewedAt: now,
+      });
+
+      await manager.save(
+        manager.create(StaffSchedule, {
+          staffId: locked.staffId,
+          branchId: locked.branchId,
+          startTime: locked.requestedStart,
+          endTime: locked.requestedEnd,
+          scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[locked.requestType],
+          status: ScheduleStatus.Active,
+          sourceRequestId: locked.id,
+          createdBy: managerId,
+        }),
+      );
+    });
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }
@@ -254,12 +285,12 @@ export class ScheduleService {
     let targetBranchId = branchId;
     if (role !== UserRole.Owner) {
       const assignment = await this.branchStaffRepo.findOne({
-        where: { userId, status: StaffStatus.Active },
+        where: { userId, branchId, status: StaffStatus.Active },
       });
       if (!assignment) {
-        throw new ForbiddenException('You are not an active staff member at any branch');
+        throw new ForbiddenException('You are not an active staff member at this branch');
       }
-      targetBranchId = assignment.branchId;
+      targetBranchId = branchId;
     }
 
     const now = new Date();
@@ -288,14 +319,15 @@ export class ScheduleService {
 
     const ratingsMap = new Map<string, number>();
     if (staffIds.length > 0) {
-      const ratingsRaw = await this.bookingRepo.query(
-        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
-           FROM reviews
-           WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
-           GROUP BY technician_id`,
-        staffIds,
-      );
-      for (const item of ratingsRaw) {
+      const ratingsRows = await this.reviewRepo
+        .createQueryBuilder('r')
+        .select('r.technicianId', 'technicianId')
+        .addSelect('AVG(r.rating)', 'avgRating')
+        .where('r.technicianId IN (:...staffIds)', { staffIds })
+        .andWhere('r.status = :status', { status: ReviewStatus.Published })
+        .groupBy('r.technicianId')
+        .getRawMany<{ technicianId: string; avgRating: string }>();
+      for (const item of ratingsRows) {
         ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
       }
     }
@@ -316,6 +348,38 @@ export class ScheduleService {
         rating: Math.round((ratingsMap.get(s.staffId) ?? 5.0) * 10) / 10,
       };
     });
+  }
+
+  // BUG-142 — Cancel a StaffSchedule and unassign affected future bookings
+  async cancelStaffSchedule(scheduleId: string, requesterId: string, requesterRole: string): Promise<StaffSchedule> {
+    const schedule = await this.staffScheduleRepo.findOne({ where: { id: scheduleId } });
+    if (!schedule) throw new NotFoundException(`Staff schedule ${scheduleId} not found`);
+    if (schedule.status === ScheduleStatus.Cancelled) {
+      throw new BadRequestException('Staff schedule is already cancelled');
+    }
+
+    if (requesterRole !== UserRole.Owner) {
+      await this.assertManagerAtBranch(requesterId, schedule.branchId);
+    }
+
+    const now = new Date();
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(StaffSchedule, { id: scheduleId }, { status: ScheduleStatus.Cancelled });
+
+      // Unassign future bookings that fall within this schedule window
+      await manager.update(
+        Booking,
+        {
+          technicianId: schedule.staffId,
+          branchId: schedule.branchId,
+          status: In([BookingStatus.PendingPayment, BookingStatus.Confirmed]),
+          startTime: MoreThanOrEqual(now),
+        },
+        { technicianId: null },
+      );
+    });
+
+    return this.staffScheduleRepo.findOne({ where: { id: scheduleId } }) as Promise<StaffSchedule>;
   }
 
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {

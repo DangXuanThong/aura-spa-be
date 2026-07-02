@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { BeforeInsert, BeforeUpdate, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { Service } from 'src/modules/service/entities/service.entity';
@@ -71,4 +71,11 @@ export class TreatmentCourse {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
+
+  // BUG-093 — enforce remainingSessions = totalSessions - usedSessions on every write
+  @BeforeInsert()
+  @BeforeUpdate()
+  syncRemainingSessions(): void {
+    this.remainingSessions = this.totalSessions - this.usedSessions;
+  }
 }

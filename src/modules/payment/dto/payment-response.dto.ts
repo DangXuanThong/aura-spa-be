@@ -37,6 +37,12 @@ export class PaymentResponseDto {
   @ApiPropertyOptional({ example: '5' })
   receivedBy!: string | null;
 
+  @ApiProperty({ example: 0 })
+  refundedAmount!: number;
+
+  @ApiPropertyOptional({ example: null })
+  refundReason!: string | null;
+
   @ApiProperty({ example: '2026-06-17T10:00:00.000Z' })
   createdAt!: Date;
 

@@ -5,6 +5,7 @@ import { BookingSlotConfig } from 'src/modules/booking/entities/booking-slot-con
 import { BranchStaff } from './entities/branch-staff.entity';
 import { StaffStatus } from './enums/staff-status.enum';
 import { UpdateSlotConfigDto } from './dto/update-slot-config.dto';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 
 @Injectable()
 export class SlotConfigService {
@@ -16,8 +17,10 @@ export class SlotConfigService {
   ) {}
 
   // UC27 — List slot configs for a branch
-  async list(branchId: string, managerId: string): Promise<BookingSlotConfig[]> {
-    await this.assertManagerAtBranch(managerId, branchId);
+  async list(branchId: string, managerId: string, role: string): Promise<BookingSlotConfig[]> {
+    if (role !== UserRole.Owner) {
+      await this.assertManagerAtBranch(managerId, branchId);
+    }
 
     return this.slotConfigRepo.find({
       where: { branchId },
@@ -26,8 +29,10 @@ export class SlotConfigService {
   }
 
   // UC27 — Update a slot config (max bookings, slot interval, hours)
-  async update(branchId: string, id: string, dto: UpdateSlotConfigDto, managerId: string): Promise<BookingSlotConfig> {
-    await this.assertManagerAtBranch(managerId, branchId);
+  async update(branchId: string, id: string, dto: UpdateSlotConfigDto, managerId: string, role: string): Promise<BookingSlotConfig> {
+    if (role !== UserRole.Owner) {
+      await this.assertManagerAtBranch(managerId, branchId);
+    }
 
     const config = await this.slotConfigRepo.findOne({ where: { id, branchId } });
     if (!config) throw new NotFoundException('Slot config not found for this branch');
@@ -35,7 +40,8 @@ export class SlotConfigService {
     if (dto.startTime !== undefined && dto.endTime !== undefined && dto.endTime <= dto.startTime) {
       throw new BadRequestException('endTime must be after startTime');
     }
-    if (dto.startTime !== undefined && dto.endTime === undefined && dto.endTime! <= dto.startTime) {
+    // BUG-027: check new startTime against existing endTime when only startTime is provided
+    if (dto.startTime !== undefined && dto.endTime === undefined && config.endTime <= dto.startTime) {
       throw new BadRequestException('endTime must be after startTime');
     }
 

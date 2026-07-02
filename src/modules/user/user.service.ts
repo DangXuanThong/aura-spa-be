@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
+import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 
 export interface FindUserByEmailOptions {
   includePasswordHash: boolean;
@@ -24,23 +26,17 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly dataSource: DataSource,
+    @InjectRepository(BranchStaff)
+    private readonly branchStaffRepository: Repository<BranchStaff>,
   ) {}
 
   async getBranchInfo(userId: string): Promise<{ branchId: string | null; branchCode: string | null }> {
-    const result = await this.dataSource.query(
-      `SELECT bs.branch_id as "branchId", b.code as "branchCode"
-       FROM branch_staff bs
-       JOIN branches b ON bs.branch_id = b.id
-       WHERE bs.user_id = $1 AND bs.status = 'active'
-       LIMIT 1`,
-      [userId],
-    );
-    if (result && result.length > 0) {
-      return {
-        branchId: result[0].branchId.toString(),
-        branchCode: result[0].branchCode,
-      };
+    const assignment = await this.branchStaffRepository.findOne({
+      where: { userId, status: StaffStatus.Active },
+      relations: ['branch'],
+    });
+    if (assignment) {
+      return { branchId: assignment.branchId, branchCode: assignment.branch?.code ?? null };
     }
     return { branchId: null, branchCode: null };
   }
@@ -59,11 +55,6 @@ export class UserService {
       user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
     }
 
-    if (user && (user.role === 'staff' || user.role === 'manager')) {
-      const branchInfo = await this.getBranchInfo(user.id);
-      user.branchId = branchInfo.branchId;
-      user.branchCode = branchInfo.branchCode;
-    }
     return user;
   }
 
@@ -72,13 +63,8 @@ export class UserService {
   }
 
   async findById(id: string): Promise<User | null> {
-    const user = await this.userRepository.findOne({ where: { id } });
-    if (user && (user.role === 'staff' || user.role === 'manager')) {
-      const branchInfo = await this.getBranchInfo(user.id);
-      user.branchId = branchInfo.branchId;
-      user.branchCode = branchInfo.branchCode;
-    }
-    return user;
+    return this.userRepository.findOne({ where: { id } });
+    // branchId/branchCode are set by JwtStrategy.validate() from the JWT payload — not fetched on every request
   }
 
   async create(data: CreateUserData): Promise<User> {
@@ -87,7 +73,9 @@ export class UserService {
   }
 
   async update(id: string, data: Partial<User>): Promise<User> {
-    await this.userRepository.update(id, data);
+    // Strip fields that must never change via this method to prevent privilege escalation
+    const { role: _r, id: _i, ...safe } = data as Record<string, unknown>;
+    await this.userRepository.update(id, safe as Partial<User>);
     // findById will never return null here since we just updated a known user
     return (await this.findById(id)) as User;
   }

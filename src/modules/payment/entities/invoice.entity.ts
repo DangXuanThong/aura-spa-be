@@ -76,6 +76,10 @@ export class Invoice {
   @Column({ name: 'created_by', type: 'bigint', nullable: false })
   createdBy!: string;
 
+  @ManyToOne(() => User, { onDelete: 'RESTRICT', nullable: false })
+  @JoinColumn({ name: 'created_by' })
+  createdByUser?: User;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

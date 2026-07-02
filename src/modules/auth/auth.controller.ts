@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Request, Res, UseGuards } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { ApiResponse, buildSuccessResponse } from 'src/common/dto/api-response.dto';
@@ -63,10 +64,21 @@ export class AuthController {
   // UC02 — Log In
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOkResponse({ type: LoginResponseDto })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials or account inactive' })
-  async login(@Body() dto: LoginDto): Promise<ApiResponse<LoginResponseData>> {
+  @ApiTooManyRequestsResponse({ description: 'Too many login attempts — try again in 60 seconds' })
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response): Promise<ApiResponse<LoginResponseData>> {
     const result = await this.authService.login(dto);
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    res.cookie('access_token', result.accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
+    });
     return buildSuccessResponse(result);
   }
 
@@ -77,8 +89,11 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ type: LogoutResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-  logout(): ApiResponse<{ message: string }> {
-    const result = this.authService.logout();
+  logout(@Request() req: any, @Res({ passthrough: true }) res: Response): ApiResponse<{ message: string }> {
+    const cookie = req.cookies?.['access_token'] as string | undefined;
+    const token = cookie ?? (req.headers?.authorization?.split(' ')[1] ?? '');
+    res.clearCookie('access_token', { path: '/' });
+    const result = this.authService.logout(token);
     return buildSuccessResponse(result);
   }
 
@@ -109,7 +124,10 @@ export class AuthController {
 
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOkResponse({ type: VerifyEmailResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many attempts — try again in 60 seconds' })
   async verifyEmail(@Body() dto: VerifyEmailDto): Promise<ApiResponse<UserProfileDto>> {
     const user = await this.authService.verifyEmail(dto.email, dto.otp);
     return buildSuccessResponse(user);
@@ -117,7 +135,10 @@ export class AuthController {
 
   @Post('resend-otp')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @ApiOkResponse({ type: ResendOtpResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many OTP requests — try again in 60 seconds' })
   async resendOtp(@Body() dto: ResendOtpDto): Promise<ApiResponse<{ message: string }>> {
     await this.authService.resendOtp(dto.email);
     return buildSuccessResponse({ message: 'OTP sent' });
@@ -125,7 +146,10 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @ApiOkResponse({ type: ForgotPasswordResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many requests — try again in 60 seconds' })
   async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ApiResponse<{ message: string }>> {
     await this.authService.forgotPassword(dto.email);
     return buildSuccessResponse({ message: 'If the email is registered, an OTP has been sent' });
@@ -133,7 +157,10 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOkResponse({ type: ResetPasswordResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many attempts — try again in 60 seconds' })
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<ApiResponse<{ message: string }>> {
     await this.authService.resetPassword(dto.email, dto.otp, dto.newPassword);
     return buildSuccessResponse({ message: 'Password reset successfully' });
@@ -149,9 +176,15 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   async googleCallback(@Request() req: RequestWithUser, @Res() res: Response): Promise<void> {
     const result = await this.authService.googleLogin(req.user as any);
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    res.cookie('access_token', result.accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-    const url = new URL(`${frontendUrl}/auth/callback`);
-    url.searchParams.set('accessToken', result.accessToken);
-    res.redirect(url.toString());
+    res.redirect(`${frontendUrl}/auth/callback`);
   }
 }

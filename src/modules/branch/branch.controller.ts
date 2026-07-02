@@ -91,11 +91,10 @@ export class BranchController {
   // ── Public: read-only routes ─────────────────────────────────────────────
 
   @Get()
-  @ApiOkResponse({ description: 'List of branches', type: [BranchResponseDto] })
-  @ApiQuery({ name: 'status', enum: BranchStatus, enumName: 'BranchStatus', required: false })
+  @ApiOkResponse({ description: 'List of active branches. Use GET /branches/all (Owner only) to filter by status.', type: [BranchResponseDto] })
   @ApiQuery({ name: 'search', type: String, required: false, description: 'Filter by branch name (case-insensitive)' })
-  async findAll(@Query('status') status?: BranchStatus, @Query('search') search?: string): Promise<BranchResponseDto[]> {
-    const branches = await this.branchService.findAll(status, search);
+  async findAll(@Query('search') search?: string): Promise<BranchResponseDto[]> {
+    const branches = await this.branchService.findAll(undefined, search);
     return plainToInstance(BranchResponseDto, branches);
   }
 

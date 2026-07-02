@@ -1,17 +1,23 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { vietnamDate } from 'src/common/utils/vietnam-date';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BookingService as BookingServiceEntity } from 'src/modules/booking/entities/booking-service.entity';
 import { Review } from 'src/modules/review/entities/review.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
+import { Complaint } from 'src/modules/communication/entities/complaint.entity';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Service as ServiceEntity } from 'src/modules/service/entities/service.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
+import { ScheduleType } from 'src/modules/schedule/enums/schedule-type.enum';
+import { ScheduleStatus } from 'src/modules/schedule/enums/schedule-status.enum';
+import { ComplaintStatus } from 'src/modules/communication/enums/complaint-status.enum';
 import { BranchPerformanceReportDto, RevenueSummaryDto, StaffPerformanceDto } from './dto/branch-performance-report.dto';
 import { BranchRevenueSummaryDto, RevenueDashboardDto, RevenueTrendPointDto, TrendGranularity } from './dto/revenue-dashboard.dto';
 import {
@@ -34,6 +40,10 @@ export class ReportService {
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(StaffSchedule)
+    private readonly staffScheduleRepo: Repository<StaffSchedule>,
+    @InjectRepository(Complaint)
+    private readonly complaintRepo: Repository<Complaint>,
   ) {}
 
   // UC31 — Branch performance report
@@ -83,7 +93,7 @@ export class ReportService {
         'b.technicianId = bs.userId AND b.branchId = :branchId' +
           ` AND b.status = '${BookingStatus.Completed}' AND b.startTime >= :from AND b.startTime <= :to`,
       )
-      .leftJoin(Review, 'r', `r.technicianId = bs.userId AND r.branchId = :branchId AND r.status = '${ReviewStatus.Published}'`)
+      .leftJoin(Review, 'r', `r.technicianId = bs.userId AND r.branchId = :branchId AND r.status = '${ReviewStatus.Published}' AND r.createdAt >= :from AND r.createdAt <= :to`)
       .select('bs.userId', 'technicianId')
       .addSelect('u.fullName', 'technicianName')
       .addSelect('COUNT(DISTINCT b.id)', 'completedServices')
@@ -159,15 +169,19 @@ export class ReportService {
   }
 
   private async queryTrend(from: Date, to: Date, granularity: TrendGranularity): Promise<RevenueTrendPointDto[]> {
+    // granularity is an enum value (day/week/month) — safe to embed as SQL literal since DATE_TRUNC
+    // does not accept parameterized granularity. BookingStatus is moved to a named parameter.
+    const trunc = `DATE_TRUNC('${granularity}', b.startTime)`;
     const rows = await this.bookingRepo
       .createQueryBuilder('b')
-      .select(`DATE_TRUNC('${granularity}', b.startTime)`, 'period')
-      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'revenue')
-      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
+      .select(trunc, 'period')
+      .addSelect('COALESCE(SUM(CASE WHEN b.status = :completed THEN b.paidAmount ELSE 0 END), 0)', 'revenue')
+      .addSelect('COUNT(CASE WHEN b.status = :completed THEN 1 END)', 'completedBookings')
       .where('b.startTime >= :from', { from })
       .andWhere('b.startTime <= :to', { to })
-      .groupBy(`DATE_TRUNC('${granularity}', b.startTime)`)
-      .orderBy(`DATE_TRUNC('${granularity}', b.startTime)`, 'ASC')
+      .setParameter('completed', BookingStatus.Completed)
+      .groupBy(trunc)
+      .orderBy(trunc, 'ASC')
       .getRawMany<Record<string, string>>();
 
     return rows.map((r) => ({
@@ -214,6 +228,8 @@ export class ReportService {
         .addSelect('COUNT(r.id)', 'reviewCount')
         .where('r.technicianId IN (:...ids)', { ids })
         .andWhere('r.status = :status', { status: ReviewStatus.Published })
+        .andWhere('r.createdAt >= :from', { from })
+        .andWhere('r.createdAt <= :to', { to })
         .groupBy('r.technicianId')
         .getRawMany<Record<string, string>>();
       reviewMap = new Map(reviewRows.map((r) => [r.technicianId, r]));
@@ -305,10 +321,8 @@ export class ReportService {
       await this.assertManagerAtBranch(managerId, branchId);
     }
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const startOfToday = vietnamDate.startOfToday();
+    const endOfToday = vietnamDate.endOfToday();
 
     // 1. Today's Revenue (Completed bookings today)
     const revenueRaw = await this.bookingRepo
@@ -340,23 +354,20 @@ export class ReportService {
 
     // 3. Active Staff Count (currently on shift)
     const now = new Date();
-    const activeStaffCountRaw = await this.bookingRepo.query(
-      `SELECT COUNT(id) AS "count"
-       FROM staff_schedules
-       WHERE branch_id = $1 AND schedule_type = 'working' AND status = 'active'
-         AND start_time <= $2 AND end_time >= $2`,
-      [branchId, now]
-    );
-    const activeStaffCount = parseInt(activeStaffCountRaw?.[0]?.count || '0', 10);
+    const activeStaffCount = await this.staffScheduleRepo.count({
+      where: {
+        branchId,
+        scheduleType: ScheduleType.Working,
+        status: ScheduleStatus.Active,
+        startTime: LessThanOrEqual(now),
+        endTime: MoreThanOrEqual(now),
+      },
+    });
 
     // 4. Open Complaints Count (open or in_progress status)
-    const openComplaintsCountRaw = await this.bookingRepo.query(
-      `SELECT COUNT(id) AS "count"
-       FROM complaints
-       WHERE branch_id = $1 AND status IN ('open', 'in_progress')`,
-      [branchId]
-    );
-    const openComplaintsCount = parseInt(openComplaintsCountRaw?.[0]?.count || '0', 10);
+    const openComplaintsCount = await this.complaintRepo.count({
+      where: { branchId, status: In([ComplaintStatus.Open, ComplaintStatus.InProgress]) },
+    });
 
     return {
       todayRevenue,

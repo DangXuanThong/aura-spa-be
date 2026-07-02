@@ -71,8 +71,17 @@ export class User {
   @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
   lastLoginAt!: Date | null;
 
+  @Column({ name: 'failed_login_count', type: 'int', default: 0 })
+  failedLoginCount!: number;
+
+  @Column({ name: 'login_lock_until', type: 'timestamptz', nullable: true })
+  loginLockUntil!: Date | null;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive!: boolean;
+
+  @Column({ name: 'notification_enabled', type: 'boolean', default: true })
+  notificationEnabled!: boolean;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

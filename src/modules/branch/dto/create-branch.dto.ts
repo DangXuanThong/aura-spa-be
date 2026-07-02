@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Length } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Matches } from 'class-validator';
 import { BranchStatus } from '../enums/branch-status.enum';
 
 export class CreateBranchDto {
@@ -42,10 +42,9 @@ export class CreateBranchDto {
   @IsNumber()
   longitude!: number;
 
-  @ApiPropertyOptional({ description: 'Phone number', example: '+1-555-0123' })
+  @ApiPropertyOptional({ description: 'Phone number', example: '0901234567' })
   @IsOptional()
-  @IsString()
-  @Length(1, 20)
+  @Matches(/^\d{10}$/, { message: 'phone must be a 10-digit number' })
   phone?: string;
 
   @ApiPropertyOptional({ description: 'Branch status', enum: BranchStatus, default: BranchStatus.Active })

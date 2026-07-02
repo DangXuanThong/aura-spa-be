@@ -1,6 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { PAYMENT_EVENTS } from 'src/common/constants/events';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { Payment } from './entities/payment.entity';
@@ -19,10 +22,13 @@ import { PaymentStatus } from './enums/payment-status.enum';
 import { PaymentType } from './enums/payment-type.enum';
 import { GenerateInvoiceDto } from './dto/generate-invoice.dto';
 import { ProcessPaymentDto } from './dto/process-payment.dto';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
 const INVOICEABLE_STATUSES = [BookingStatus.CheckedIn, BookingStatus.InService, BookingStatus.Completed];
+// Vietnam VAT is 10% — kept 0 until pricing model is confirmed with the product team
+const INVOICE_TAX_RATE = 0;
 
 @Injectable()
 export class PaymentService {
@@ -44,6 +50,7 @@ export class PaymentService {
     @InjectRepository(ServiceInventoryRequirement)
     private readonly serviceInventoryRequirementRepo: Repository<ServiceInventoryRequirement>,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // UC24 — Generate invoice for a checked-in or in-service booking
@@ -115,6 +122,20 @@ export class PaymentService {
     const remainingAmount = Math.max(0, totalAmount - paidAmount);
 
     return this.dataSource.transaction(async (manager) => {
+      // Lock booking to serialize concurrent generateInvoice calls on the same booking
+      const lockedBooking = await manager.findOne(Booking, {
+        where: { id: dto.bookingId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedBooking) throw new NotFoundException('Booking not found');
+
+      // Re-check for existing invoice under lock — handles the TOCTOU window
+      const existingInTx = await manager.findOne(Invoice, { where: { bookingId: lockedBooking.id } });
+      if (existingInTx) {
+        const items = await manager.find(InvoiceItem, { where: { invoiceId: existingInTx.id } });
+        return Object.assign(existingInTx, { items });
+      }
+
       const invoice = await manager.save(
         manager.create(Invoice, {
           invoiceNumber,
@@ -123,7 +144,7 @@ export class PaymentService {
           branchId: booking.branchId,
           subtotalAmount: subtotal,
           discountAmount,
-          taxAmount: 0,
+          taxAmount: Math.round(subtotal * INVOICE_TAX_RATE * 100) / 100,
           totalAmount,
           paidAmount,
           remainingAmount,
@@ -227,33 +248,146 @@ export class PaymentService {
   }
 
   // UC24 — Get invoice by ID (with line items)
-  async findOne(id: string): Promise<InvoiceWithItems> {
+  async findOne(id: string, requester: { id: string; role: string }): Promise<InvoiceWithItems> {
     const invoice = await this.invoiceRepo.findOne({ where: { id } });
     if (!invoice) throw new NotFoundException('Invoice not found');
+
+    if (requester.role === UserRole.Customer) {
+      if (invoice.customerId !== requester.id) {
+        throw new ForbiddenException('You do not have access to this invoice');
+      }
+    } else if (requester.role === UserRole.Staff || requester.role === UserRole.Manager) {
+      const assignments = await this.branchStaffRepo.find({
+        where: { userId: requester.id, status: StaffStatus.Active },
+        select: ['branchId'],
+      });
+      const branchIds = assignments.map(a => a.branchId);
+      if (!branchIds.includes(invoice.branchId)) {
+        throw new ForbiddenException('You do not have access to this invoice');
+      }
+    }
+    // Owner has no branch restriction
 
     const items = await this.invoiceItemRepo.find({ where: { invoiceId: id } });
     return Object.assign(invoice, { items });
   }
 
-  // UC24 — Record counter payment against an invoice
-  async processPayment(invoiceId: string, dto: ProcessPaymentDto, staffId: string): Promise<Payment> {
-    const invoice = await this.invoiceRepo.findOne({ where: { id: invoiceId } });
-    if (!invoice) throw new NotFoundException('Invoice not found');
+  // UC24 — Refund a payment (partial or full)
+  async refund(paymentId: string, dto: RefundPaymentDto, staffId: string, staffRole: string): Promise<Payment> {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
 
-    if (![InvoiceStatus.Issued, InvoiceStatus.PartiallyPaid].includes(invoice.status)) {
-      throw new BadRequestException('Payment can only be recorded for issued or partially paid invoices');
+    if (payment.status !== PaymentStatus.Paid && payment.status !== PaymentStatus.PartiallyRefunded) {
+      throw new BadRequestException('Only paid or partially refunded payments can be refunded');
     }
 
-    const remaining = parseFloat(invoice.remainingAmount as unknown as string);
-    if (dto.amount > remaining) {
-      throw new BadRequestException(`Amount exceeds remaining balance of ${remaining}`);
+    if (staffRole !== UserRole.Owner) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: staffId, branchId: payment.branchId, status: StaffStatus.Active },
+      });
+      if (!assignment) throw new ForbiddenException('You are not an active staff member at this branch');
     }
 
-    const paymentType = dto.paymentType ?? (dto.amount >= remaining ? PaymentType.FullPayment : PaymentType.Deposit);
+    const alreadyRefunded = parseFloat(payment.refundedAmount as unknown as string);
+    const originalAmount = parseFloat(payment.amount as unknown as string);
+    const maxRefundable = originalAmount - alreadyRefunded;
+
+    if (dto.amount > maxRefundable) {
+      throw new BadRequestException(`Refund amount ${dto.amount} exceeds refundable balance of ${maxRefundable}`);
+    }
 
     return this.dataSource.transaction(async (manager) => {
-      const now = new Date();
+      const locked = await manager.findOne(Payment, {
+        where: { id: paymentId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked) throw new NotFoundException('Payment not found');
 
+      if (locked.status !== PaymentStatus.Paid && locked.status !== PaymentStatus.PartiallyRefunded) {
+        throw new BadRequestException('Only paid or partially refunded payments can be refunded');
+      }
+
+      const lockedRefunded = parseFloat(locked.refundedAmount as unknown as string);
+      const lockedOriginal = parseFloat(locked.amount as unknown as string);
+      if (dto.amount > lockedOriginal - lockedRefunded) {
+        throw new BadRequestException(`Refund amount ${dto.amount} exceeds refundable balance of ${lockedOriginal - lockedRefunded}`);
+      }
+
+      const newRefunded = lockedRefunded + dto.amount;
+      const newStatus = newRefunded >= lockedOriginal ? PaymentStatus.Refunded : PaymentStatus.PartiallyRefunded;
+
+      await manager.update(Payment, paymentId, {
+        refundedAmount: newRefunded,
+        refundReason: dto.reason,
+        status: newStatus,
+      });
+
+      if (locked.invoiceId) {
+        const invoice = await manager.findOne(Invoice, {
+          where: { id: locked.invoiceId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (invoice) {
+          const invoicePaid = parseFloat(invoice.paidAmount as unknown as string);
+          const invoiceTotal = parseFloat(invoice.totalAmount as unknown as string);
+          const newPaid = Math.max(0, invoicePaid - dto.amount);
+          const newRemaining = Math.max(0, invoiceTotal - newPaid);
+          const newInvoiceStatus = newPaid <= 0 ? InvoiceStatus.Refunded : InvoiceStatus.PartiallyPaid;
+
+          await manager.update(Invoice, invoice.id, {
+            paidAmount: newPaid,
+            remainingAmount: newRemaining,
+            status: newInvoiceStatus,
+          });
+
+          if (invoice.bookingId) {
+            await manager.update(Booking, invoice.bookingId, {
+              paidAmount: newPaid,
+              remainingAmount: newRemaining,
+            });
+          }
+        }
+      }
+
+      return manager.findOne(Payment, { where: { id: paymentId } }) as Promise<Payment>;
+    });
+  }
+
+  // UC24 — Record counter payment against an invoice
+  async processPayment(invoiceId: string, dto: ProcessPaymentDto, staffId: string): Promise<Payment> {
+    const payment = await this.dataSource.transaction(async (manager) => {
+      const invoice = await manager.findOne(Invoice, {
+        where: { id: invoiceId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+
+      const staffAssignment = await manager.findOne(BranchStaff, {
+        where: { userId: staffId, branchId: invoice.branchId ?? undefined, status: StaffStatus.Active },
+      });
+      if (!staffAssignment) {
+        throw new ForbiddenException('You are not an active staff member at this invoice\'s branch');
+      }
+
+      if (![InvoiceStatus.Issued, InvoiceStatus.PartiallyPaid].includes(invoice.status)) {
+        throw new BadRequestException('Payment can only be recorded for issued or partially paid invoices');
+      }
+
+      if (invoice.bookingId) {
+        const booking = await manager.findOne(Booking, { where: { id: invoice.bookingId } });
+        if (booking?.status === BookingStatus.Cancelled) {
+          throw new BadRequestException('Cannot process payment for a cancelled booking');
+        }
+      }
+
+      const remaining = parseFloat(invoice.remainingAmount as unknown as string);
+      if (dto.amount > remaining) {
+        throw new BadRequestException(`Amount exceeds remaining balance of ${remaining}`);
+      }
+
+      const paymentType = dto.paymentType ?? (dto.amount >= remaining ? PaymentType.FullPayment : PaymentType.Deposit);
+
+      const now = new Date();
       const payment = await manager.save(
         manager.create(Payment, {
           invoiceId: invoice.id,
@@ -290,5 +424,19 @@ export class PaymentService {
 
       return payment;
     });
+
+    const eventName = payment.paymentType === PaymentType.Deposit
+      ? PAYMENT_EVENTS.DEPOSIT_PAID
+      : PAYMENT_EVENTS.PROCESSED;
+    this.eventEmitter.emit(eventName, {
+      paymentId: payment.id,
+      invoiceId: payment.invoiceId,
+      customerId: payment.customerId,
+      branchId: payment.branchId,
+      amount: Number(payment.amount),
+      paymentType: payment.paymentType,
+    });
+
+    return payment;
   }
 }

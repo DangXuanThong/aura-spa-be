@@ -15,7 +15,11 @@ import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
+import { PoliciesGuard } from 'src/common/casl/policies.guard';
+import { CheckPolicies } from 'src/common/casl/check-policies.decorator';
+import { AppAbility } from 'src/common/casl/casl-ability.factory';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
+import { Booking } from './entities/booking.entity';
 import { BookingAvailabilityService } from './booking-availability.service';
 import { BookingService } from './booking.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -57,8 +61,9 @@ export class BookingController {
   // ── Customer: booking routes (UC10 — Book Appointment) ──────────────────
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PoliciesGuard)
   @Roles(UserRole.Customer)
+  @CheckPolicies((ability: AppAbility) => ability.can('create', Booking))
   @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ description: 'Appointment booked successfully', type: BookingResponseDto })
@@ -70,8 +75,9 @@ export class BookingController {
   }
 
   @Get('my')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PoliciesGuard)
   @Roles(UserRole.Customer)
+  @CheckPolicies((ability: AppAbility) => ability.can('read', Booking))
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Bookings for the authenticated customer, ordered by start time descending', type: [BookingResponseDto] })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -117,8 +123,9 @@ export class BookingController {
   // ── Customer: cancel routes (UC12 — Cancel Appointment) ─────────────────
 
   @Patch(':id/cancel')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PoliciesGuard)
   @Roles(UserRole.Customer)
+  @CheckPolicies((ability: AppAbility) => ability.can('delete', Booking))
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Appointment cancelled — returns the updated booking', type: BookingResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
@@ -161,8 +168,9 @@ export class BookingController {
   }
 
   @Post('walk-in')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PoliciesGuard)
   @Roles(UserRole.Staff)
+  @CheckPolicies((ability: AppAbility) => ability.can('create', Booking))
   @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.CREATED)
   @ApiCreatedResponse({ description: 'Walk-in appointment created and checked in', type: BookingResponseDto })
@@ -223,8 +231,16 @@ export class BookingController {
   @ApiOkResponse({ description: 'Bookings for a branch, ordered by start time descending', type: [BookingResponseDto] })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Staff, manager, or owner access required for this branch' })
-  async findByBranch(@Param('branchId') branchId: string, @Request() req: any): Promise<BookingResponseDto[]> {
-    const bookings = await this.bookingService.findBranchBookings(branchId, req.user.id, req.user.role);
+  @ApiQuery({ name: 'date', required: false, description: 'Filter by date (YYYY-MM-DD, Vietnam timezone)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max records to return (default 100, max 200)' })
+  async findByBranch(
+    @Param('branchId') branchId: string,
+    @Request() req: any,
+    @Query('date') date?: string,
+    @Query('limit') limitStr?: string,
+  ): Promise<BookingResponseDto[]> {
+    const limit = limitStr ? Math.min(parseInt(limitStr, 10) || 100, 200) : 100;
+    const bookings = await this.bookingService.findBranchBookings(branchId, req.user.id, req.user.role, date, limit);
     return plainToInstance(BookingResponseDto, bookings);
   }
 
@@ -234,7 +250,7 @@ export class BookingController {
   @ApiOkResponse({ description: 'Booking detail', type: BookingResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   async findOne(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
-    const booking = await this.bookingService.findOne(id, req.user.id, req.user.role);
+    const booking = await this.bookingService.findOne(id, req.user.id, req.user.role, req.user.branchId);
     return plainToInstance(BookingResponseDto, booking);
   }
 }

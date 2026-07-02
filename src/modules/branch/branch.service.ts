@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { BranchStaff } from './entities/branch-staff.entity';
@@ -87,7 +87,14 @@ export class BranchService {
 
   async remove(id: string): Promise<void> {
     const branch = await this.findOne(id);
-    await this.branchRepository.remove(branch);
+    try {
+      await this.branchRepository.remove(branch);
+    } catch (err) {
+      if (err instanceof QueryFailedError && (err as any).code === '23503') {
+        throw new ConflictException('Cannot delete branch: it has related records (staff, bookings, etc.). Deactivate it instead.');
+      }
+      throw err;
+    }
   }
 
   async countActiveBranches(): Promise<number> {
@@ -102,6 +109,16 @@ export class BranchService {
   }
 
   async getNearby(latitude: number, longitude: number, radiusKm: number = 50): Promise<Branch[]> {
+    if (isNaN(latitude) || latitude < -90 || latitude > 90) {
+      throw new BadRequestException('latitude must be a number between -90 and 90');
+    }
+    if (isNaN(longitude) || longitude < -180 || longitude > 180) {
+      throw new BadRequestException('longitude must be a number between -180 and 180');
+    }
+    if (isNaN(radiusKm) || radiusKm <= 0 || radiusKm > 500) {
+      throw new BadRequestException('radius must be a positive number up to 500 km');
+    }
+
     const radiusRadians = radiusKm / 6371; // Earth radius in km
 
     return this.branchRepository.query(

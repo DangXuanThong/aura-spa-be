@@ -151,6 +151,20 @@ export class ScheduleController {
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
+  // ── Manager/Owner: cancel an approved staff schedule + unassign bookings (BUG-142) ──
+
+  @Patch('staff-schedules/:id/cancel')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Staff schedule cancelled; future bookings in this slot have their technician unassigned' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiNotFoundResponse({ description: 'Staff schedule not found' })
+  async cancelStaffSchedule(@Param('id') id: string, @Request() req: any): Promise<any> {
+    return this.scheduleService.cancelStaffSchedule(id, req.user.id, req.user.role);
+  }
+
   @Get('active-staff/:branchId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Manager, UserRole.Owner)

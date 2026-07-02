@@ -81,10 +81,9 @@ export class ServiceController {
   // ── Public: read-only routes (UC06 — Guest View Service Catalogue) ────────
 
   @Get()
-  @ApiOkResponse({ description: 'List of services', type: [ServiceResponseDto] })
-  @ApiQuery({ name: 'status', enum: ServiceStatus, enumName: 'ServiceStatus', required: false })
-  async findAll(@Query('status') status?: ServiceStatus): Promise<ServiceResponseDto[]> {
-    const services = await this.serviceService.findAll(status);
+  @ApiOkResponse({ description: 'List of active services. Use GET /services/all (Owner only) to filter by status.', type: [ServiceResponseDto] })
+  async findAll(): Promise<ServiceResponseDto[]> {
+    const services = await this.serviceService.findAll();
     return plainToInstance(ServiceResponseDto, services);
   }
 

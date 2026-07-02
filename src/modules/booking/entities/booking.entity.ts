@@ -97,11 +97,23 @@ export class Booking {
   @Column({ name: 'transferred_from_branch_id', type: 'bigint', nullable: true })
   transferredFromBranchId!: string | null;
 
+  @ManyToOne(() => Branch, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'transferred_from_branch_id' })
+  transferredFromBranch?: Branch;
+
   @Column({ name: 'rescheduled_from_booking_id', type: 'bigint', nullable: true })
   rescheduledFromBookingId!: string | null;
 
+  @ManyToOne(() => Booking, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'rescheduled_from_booking_id' })
+  rescheduledFromBooking?: Booking;
+
   @Column({ name: 'created_by', type: 'bigint', nullable: true })
   createdBy!: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'created_by' })
+  createdByUser?: User;
 
   @Column({ name: 'checked_in_at', type: 'timestamptz', nullable: true })
   checkedInAt!: Date | null;

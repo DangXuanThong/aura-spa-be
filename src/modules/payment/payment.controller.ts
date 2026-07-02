@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -17,6 +17,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { PaymentService } from './payment.service';
 import { GenerateInvoiceDto } from './dto/generate-invoice.dto';
 import { ProcessPaymentDto } from './dto/process-payment.dto';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { InvoiceResponseDto } from './dto/invoice-response.dto';
 import { PaymentResponseDto } from './dto/payment-response.dto';
 
@@ -43,13 +44,15 @@ export class PaymentController {
   // ── Authenticated: get invoice by ID (UC24) ──────────────────────────────
 
   @Get('invoices/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner, UserRole.Customer)
   @ApiBearerAuth('access-token')
   @ApiOkResponse({ description: 'Invoice detail', type: InvoiceResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   @ApiNotFoundResponse({ description: 'Invoice not found' })
-  async findOne(@Param('id') id: string): Promise<InvoiceResponseDto> {
-    const invoice = await this.paymentService.findOne(id);
+  async findOne(@Param('id') id: string, @Request() req: any): Promise<InvoiceResponseDto> {
+    const invoice = await this.paymentService.findOne(id, req.user);
     return plainToInstance(InvoiceResponseDto, invoice);
   }
 
@@ -66,6 +69,23 @@ export class PaymentController {
   @ApiNotFoundResponse({ description: 'Invoice not found' })
   async processPayment(@Param('id') id: string, @Body() dto: ProcessPaymentDto, @Request() req: any): Promise<PaymentResponseDto> {
     const payment = await this.paymentService.processPayment(id, dto, req.user.id);
+    return plainToInstance(PaymentResponseDto, payment);
+  }
+
+  // ── Manager/Owner: refund a payment (UC24) ───────────────────────────────
+
+  @Post('payments/:id/refund')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Payment refunded — returns updated payment record', type: PaymentResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager or Owner role required, or not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Refund amount exceeds balance or payment not in refundable state' })
+  @ApiNotFoundResponse({ description: 'Payment not found' })
+  async refundPayment(@Param('id') id: string, @Body() dto: RefundPaymentDto, @Request() req: any): Promise<PaymentResponseDto> {
+    const payment = await this.paymentService.refund(id, dto, req.user.id, req.user.role);
     return plainToInstance(PaymentResponseDto, payment);
   }
 }

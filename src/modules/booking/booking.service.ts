@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { vietnamDate } from 'src/common/utils/vietnam-date';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService as BookingServiceEntity } from './entities/booking-service.entity';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
@@ -29,16 +31,21 @@ import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
 import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
 import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
+import { User } from 'src/modules/user/entities/user.entity';
 import { UserService } from 'src/modules/user/user.service';
 import { UserStatus } from 'src/modules/user/enums/user-status.enum';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
+import { Invoice } from 'src/modules/payment/entities/invoice.entity';
 import { Payment } from 'src/modules/payment/entities/payment.entity';
+import { InvoiceStatus } from 'src/modules/payment/enums/invoice-status.enum';
 import { PaymentMethod } from 'src/modules/payment/enums/payment-method.enum';
 import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
 import { PaymentType } from 'src/modules/payment/enums/payment-type.enum';
+import { BOOKING_EVENTS } from 'src/common/constants/events';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
+const DEPOSIT_RATE = 0.1; // 10% of service price — configurable per branch/service in a future milestone
 
 function normalizeVietnamPhone(phone: string): string {
   const compact = phone.replace(/\s/g, '');
@@ -72,6 +79,8 @@ export class BookingService {
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
     private readonly userService: UserService,
+    private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // UC10 — Book Appointment
@@ -93,18 +102,21 @@ export class BookingService {
 
     const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
     const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
-    const depositAmount = Math.round(unitPrice * 0.1);
+    const depositAmount = Math.round(unitPrice * DEPOSIT_RATE);
 
     // 3. Compute start/end times
     const startTime = new Date(dto.startTime);
+    if (isNaN(startTime.getTime()) || startTime <= new Date()) {
+      throw new BadRequestException('Start time must be a valid date in the future');
+    }
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
 
     // 4. Resolve a concrete technician. If the customer chooses "any", assign the first available scheduled technician.
     const technicianId = await this.resolveTechnician(dto.branchId, dto.technicianId, startTime, endTime);
 
     // 5. Find slot config to check capacity
-    const targetDate = startTime.toISOString().slice(0, 10); // YYYY-MM-DD UTC
-    const dayOfWeek = startTime.getDay();
+    const targetDate = vietnamDate.toDateString(startTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(startTime);
 
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
@@ -116,52 +128,65 @@ export class BookingService {
 
     const maxBookings = slotConfig?.maxBookings ?? 1;
 
-    // 6. Check slot availability (prevent double-booking)
-    const overlapping = await this.bookingRepo
-      .createQueryBuilder('b')
-      .where('b.branchId = :branchId', { branchId: dto.branchId })
-      .andWhere('b.startTime < :endTime', { endTime })
-      .andWhere('b.endTime > :startTime', { startTime })
-      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
-      .getCount();
+    // 6 + 7 + 8. Lock branch, kiểm tra slot bên trong transaction, tạo booking atomically (BUG-041)
+    const booking = await this.dataSource.transaction(async (manager) => {
+      // Lock row branch để serialize concurrent requests cho cùng branch.
+      // Không có lock: 2 requests đọc count=0 đồng thời, cả 2 pass → overbooking.
+      await manager.findOneOrFail(Branch, {
+        where: { id: dto.branchId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (overlapping >= maxBookings) {
-      throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
-    }
+      const overlapping = await manager
+        .createQueryBuilder(Booking, 'b')
+        .where('b.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getCount();
 
-    // 7. Create booking. Online appointments are held until the customer pays the deposit.
-    const booking = await this.bookingRepo.save(
-      this.bookingRepo.create({
-        customerId,
-        branchId: dto.branchId,
-        technicianId,
-        startTime,
-        endTime,
-        status: BookingStatus.PendingPayment,
-        source: BookingSource.Online,
-        subtotalAmount: unitPrice,
-        discountAmount: 0,
-        depositRequiredAmount: depositAmount,
-        paidAmount: 0,
-        remainingAmount: unitPrice,
-        notes: dto.notes ?? null,
-        createdBy: customerId,
-      }),
-    );
+      if (overlapping >= maxBookings) {
+        throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
+      }
 
-    // 8. Create booking-service record
-    await this.bookingServiceRepo.save(
-      this.bookingServiceRepo.create({
-        bookingId: booking.id,
-        serviceId: dto.serviceId,
-        quantity: 1,
-        durationMinutes,
-        unitPrice,
-        discountAmount: 0,
-        finalAmount: unitPrice,
-      }),
-    );
+      const created = await manager.save(
+        manager.create(Booking, {
+          customerId,
+          branchId: dto.branchId,
+          technicianId,
+          startTime,
+          endTime,
+          status: BookingStatus.PendingPayment,
+          source: BookingSource.Online,
+          subtotalAmount: unitPrice,
+          discountAmount: 0,
+          depositRequiredAmount: depositAmount,
+          paidAmount: 0,
+          remainingAmount: unitPrice,
+          notes: dto.notes ?? null,
+          createdBy: customerId,
+        }),
+      );
 
+      await manager.save(
+        manager.create(BookingServiceEntity, {
+          bookingId: created.id,
+          serviceId: dto.serviceId,
+          quantity: 1,
+          durationMinutes,
+          unitPrice,
+          discountAmount: 0,
+          finalAmount: unitPrice,
+        }),
+      );
+
+      return created;
+    });
+    this.eventEmitter.emit(BOOKING_EVENTS.CREATED, {
+      bookingId: booking.id,
+      customerId: booking.customerId,
+      branchId: booking.branchId,
+    });
     return booking;
   }
 
@@ -185,25 +210,27 @@ export class BookingService {
     const nextPaidAmount = Math.min(totalAfterDiscount, paidAmount + depositAmount);
     const nextRemainingAmount = Math.max(0, totalAfterDiscount - nextPaidAmount);
 
-    await this.paymentRepo.save(
-      this.paymentRepo.create({
-        invoiceId: null,
-        bookingId: booking.id,
-        customerId: booking.customerId,
-        branchId: booking.branchId,
-        paymentType: PaymentType.Deposit,
-        paymentMethod,
-        status: PaymentStatus.Paid,
-        amount: depositAmount,
-        paidAt: new Date(),
-        receivedBy: null,
-      }),
-    );
+    await this.dataSource.transaction(async (manager) => {
+      await manager.save(
+        manager.create(Payment, {
+          invoiceId: null,
+          bookingId: booking.id,
+          customerId: booking.customerId,
+          branchId: booking.branchId,
+          paymentType: PaymentType.Deposit,
+          paymentMethod,
+          status: PaymentStatus.Paid,
+          amount: depositAmount,
+          paidAt: new Date(),
+          receivedBy: null,
+        }),
+      );
 
-    await this.bookingRepo.update(id, {
-      status: BookingStatus.Confirmed,
-      paidAmount: nextPaidAmount,
-      remainingAmount: nextRemainingAmount,
+      await manager.update(Booking, id, {
+        status: BookingStatus.Confirmed,
+        paidAmount: nextPaidAmount,
+        remainingAmount: nextRemainingAmount,
+      });
     });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
@@ -242,8 +269,8 @@ export class BookingService {
     const newTechnicianId = await this.resolveTechnician(booking.branchId, dto.technicianId, new Date(dto.startTime), newEndTime);
 
     // 6. Find slot config for the new date
-    const targetDate = newStartTime.toISOString().slice(0, 10);
-    const dayOfWeek = newStartTime.getDay();
+    const targetDate = vietnamDate.toDateString(newStartTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(newStartTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: booking.branchId })
@@ -267,45 +294,54 @@ export class BookingService {
       throw new ConflictException('The selected time slot is not available. Please choose a different time.');
     }
 
-    // 8. Mark old booking as Rescheduled
-    await this.bookingRepo.update(id, { status: BookingStatus.Rescheduled });
+    // 8-10. Mark old as rescheduled, create new booking and service record atomically
+    return this.dataSource.transaction(async (manager) => {
+      await manager.update(Booking, id, { status: BookingStatus.Rescheduled });
 
-    // 9. Create new booking carrying over all financial state
-    const newBooking = await this.bookingRepo.save(
-      this.bookingRepo.create({
-        customerId,
-        branchId: booking.branchId,
-        technicianId: newTechnicianId,
-        discountCodeId: booking.discountCodeId,
-        startTime: newStartTime,
-        endTime: newEndTime,
-        status: booking.status,
-        source: booking.source,
-        subtotalAmount: booking.subtotalAmount,
-        discountAmount: booking.discountAmount,
-        depositRequiredAmount: booking.depositRequiredAmount,
-        paidAmount: booking.paidAmount,
-        remainingAmount: booking.remainingAmount,
-        notes: booking.notes,
-        rescheduledFromBookingId: id,
-        createdBy: customerId,
-      }),
-    );
+      const newBooking = await manager.save(
+        manager.create(Booking, {
+          customerId,
+          branchId: booking.branchId,
+          technicianId: newTechnicianId,
+          discountCodeId: booking.discountCodeId,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          status: booking.status,
+          source: booking.source,
+          subtotalAmount: booking.subtotalAmount,
+          discountAmount: booking.discountAmount,
+          depositRequiredAmount: booking.depositRequiredAmount,
+          paidAmount: booking.paidAmount,
+          remainingAmount: booking.remainingAmount,
+          notes: booking.notes,
+          rescheduledFromBookingId: id,
+          createdBy: customerId,
+        }),
+      );
 
-    // 10. Clone booking-service record for the new booking
-    await this.bookingServiceRepo.save(
-      this.bookingServiceRepo.create({
-        bookingId: newBooking.id,
-        serviceId: bookingSvc.serviceId,
-        quantity: bookingSvc.quantity,
-        durationMinutes: bookingSvc.durationMinutes,
-        unitPrice: bookingSvc.unitPrice,
-        discountAmount: bookingSvc.discountAmount,
-        finalAmount: bookingSvc.finalAmount,
-      }),
-    );
+      await manager.save(
+        manager.create(BookingServiceEntity, {
+          bookingId: newBooking.id,
+          serviceId: bookingSvc.serviceId,
+          quantity: bookingSvc.quantity,
+          durationMinutes: bookingSvc.durationMinutes,
+          unitPrice: bookingSvc.unitPrice,
+          discountAmount: bookingSvc.discountAmount,
+          finalAmount: bookingSvc.finalAmount,
+        }),
+      );
 
-    return newBooking;
+      // The rescheduled booking counts as a fresh usage of the discount code
+      if (booking.discountCodeId) {
+        await manager.increment(DiscountCode, { id: booking.discountCodeId }, 'usedCount', 1);
+        const dc = await manager.findOne(DiscountCode, { where: { id: booking.discountCodeId } });
+        if (dc?.promotionId) {
+          await manager.increment(Promotion, { id: dc.promotionId }, 'usedCount', 1);
+        }
+      }
+
+      return newBooking;
+    });
   }
 
   // UC13 — Transfer Appointment to Another Branch
@@ -360,8 +396,8 @@ export class BookingService {
     }
 
     // 9. Find slot config at target branch for the new date
-    const targetDate = newStartTime.toISOString().slice(0, 10);
-    const dayOfWeek = newStartTime.getDay();
+    const targetDate = vietnamDate.toDateString(newStartTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(newStartTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: dto.targetBranchId })
@@ -384,49 +420,49 @@ export class BookingService {
       throw new ConflictException('The selected time slot is not available at the target branch. Please choose a different time.');
     }
 
-    // 11. Mark old booking as Transferred
-    await this.bookingRepo.update(id, { status: BookingStatus.Transferred });
-
-    // 12. Create new booking at target branch; carry over paid amount, recalculate remaining
+    // 11-13. Mark old as transferred, create new booking and service record atomically
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
     const discountAmount = parseFloat(booking.discountAmount as unknown as string);
     const newRemainingAmount = Math.max(0, newUnitPrice - discountAmount - paidAmount);
 
-    const newBooking = await this.bookingRepo.save(
-      this.bookingRepo.create({
-        customerId,
-        branchId: dto.targetBranchId,
-        technicianId: dto.technicianId ?? null,
-        discountCodeId: booking.discountCodeId,
-        startTime: newStartTime,
-        endTime: newEndTime,
-        status: BookingStatus.Confirmed,
-        source: booking.source,
-        subtotalAmount: newUnitPrice,
-        discountAmount,
-        depositRequiredAmount: booking.depositRequiredAmount,
-        paidAmount,
-        remainingAmount: newRemainingAmount,
-        notes: booking.notes,
-        transferredFromBranchId: booking.branchId,
-        createdBy: customerId,
-      }),
-    );
+    return this.dataSource.transaction(async (manager) => {
+      await manager.update(Booking, id, { status: BookingStatus.Transferred });
 
-    // 13. Clone booking-service record with target branch pricing
-    await this.bookingServiceRepo.save(
-      this.bookingServiceRepo.create({
-        bookingId: newBooking.id,
-        serviceId: bookingSvc.serviceId,
-        quantity: bookingSvc.quantity,
-        durationMinutes: newDuration,
-        unitPrice: newUnitPrice,
-        discountAmount: bookingSvc.discountAmount,
-        finalAmount: newUnitPrice - parseFloat(bookingSvc.discountAmount as unknown as string),
-      }),
-    );
+      const newBooking = await manager.save(
+        manager.create(Booking, {
+          customerId,
+          branchId: dto.targetBranchId,
+          technicianId: dto.technicianId ?? null,
+          discountCodeId: booking.discountCodeId,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          status: BookingStatus.Confirmed,
+          source: booking.source,
+          subtotalAmount: newUnitPrice,
+          discountAmount,
+          depositRequiredAmount: booking.depositRequiredAmount,
+          paidAmount,
+          remainingAmount: newRemainingAmount,
+          notes: booking.notes,
+          transferredFromBranchId: booking.branchId,
+          createdBy: customerId,
+        }),
+      );
 
-    return newBooking;
+      await manager.save(
+        manager.create(BookingServiceEntity, {
+          bookingId: newBooking.id,
+          serviceId: bookingSvc.serviceId,
+          quantity: bookingSvc.quantity,
+          durationMinutes: newDuration,
+          unitPrice: newUnitPrice,
+          discountAmount: bookingSvc.discountAmount,
+          finalAmount: newUnitPrice - parseFloat(bookingSvc.discountAmount as unknown as string),
+        }),
+      );
+
+      return newBooking;
+    });
   }
 
   // UC12 — Cancel Appointment
@@ -447,11 +483,28 @@ export class BookingService {
       throw new BadRequestException('Cannot cancel a booking that has already started');
     }
 
-    // 4. Apply cancellation
-    await this.bookingRepo.update(id, {
-      status: BookingStatus.Cancelled,
-      cancelReason: dto.cancelReason ?? null,
-      cancelledAt: new Date(),
+    // 4. Apply cancellation atomically — booking + any non-terminal invoice must be updated together
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Booking, id, {
+        status: BookingStatus.Cancelled,
+        cancelReason: dto.cancelReason ?? null,
+        cancelledAt: new Date(),
+      });
+
+      const invoice = await manager.findOne(Invoice, { where: { bookingId: id } });
+      if (invoice) {
+        if ([InvoiceStatus.Draft, InvoiceStatus.Issued].includes(invoice.status)) {
+          await manager.update(Invoice, invoice.id, { status: InvoiceStatus.Voided });
+        } else if ([InvoiceStatus.PartiallyPaid, InvoiceStatus.Paid].includes(invoice.status)) {
+          // Deposit already paid — mark invoice and outstanding payments for refund
+          await manager.update(Invoice, invoice.id, { status: InvoiceStatus.Refunded });
+          await manager.update(
+            Payment,
+            { invoiceId: invoice.id, status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]) },
+            { status: PaymentStatus.Refunded, refundReason: 'Booking cancelled by customer' },
+          );
+        }
+      }
     });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
@@ -506,14 +559,19 @@ export class BookingService {
     }
 
     // 2a. Resolve customer by id or quick-create from walk-in phone/name
-    let customerId = dto.customerId;
+    // BUG-044: user creation moved inside transaction — không tạo User ngoài tx nữa
+    let customerId: string | undefined = dto.customerId;
+    let needsNewCustomer = false;
+    let newCustomerName = '';
+    let newCustomerPhone = '';
+
     if (customerId) {
       const customer = await this.userService.findById(customerId);
       if (!customer || customer.role !== UserRole.Customer || customer.status !== UserStatus.Active) {
         throw new NotFoundException(`Customer ${customerId} not found or inactive`);
       }
     } else {
-      const customerName = dto.customerName?.trim();
+      const customerName = dto.customerName?.trim() ?? '';
       const customerPhone = dto.customerPhone ? normalizeVietnamPhone(dto.customerPhone) : '';
 
       if (!customerName || !customerPhone) {
@@ -531,18 +589,10 @@ export class BookingService {
         }
         customerId = existingCustomer.id;
       } else {
-        const createdCustomer = await this.userService.create({
-          fullName: customerName,
-          email: null,
-          phone: customerPhone,
-          passwordHash: null,
-          authProvider: AuthProvider.Email,
-          status: UserStatus.Active,
-          gender: Gender.Unknown,
-          dateOfBirth: null,
-          address: null,
-        });
-        customerId = createdCustomer.id;
+        // Defer tạo user vào trong transaction — User và Booking commit/rollback cùng nhau (BUG-044)
+        needsNewCustomer = true;
+        newCustomerName = customerName;
+        newCustomerPhone = customerPhone;
       }
     }
 
@@ -570,8 +620,8 @@ export class BookingService {
 
     // 5. Start time must be today (same-day walk-in)
     const startTime = new Date(dto.startTime);
-    const nowDate = new Date().toISOString().slice(0, 10);
-    const slotDate = startTime.toISOString().slice(0, 10);
+    const nowDate = vietnamDate.toDateString(new Date());
+    const slotDate = vietnamDate.toDateString(startTime);
     if (slotDate !== nowDate) {
       throw new BadRequestException('Walk-in appointments must be scheduled for today');
     }
@@ -583,8 +633,8 @@ export class BookingService {
       await this.resolveTechnician(dto.branchId, dto.technicianId, startTime, endTime);
     }
 
-    // 6. Check slot capacity
-    const dayOfWeek = startTime.getDay();
+    // 6. Đọc slot config (read-only, an toàn ngoài transaction)
+    const dayOfWeek = vietnamDate.dayOfWeek(startTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: dto.branchId })
@@ -595,53 +645,81 @@ export class BookingService {
 
     const maxBookings = slotConfig?.maxBookings ?? 1;
 
-    const overlapping = await this.bookingRepo
-      .createQueryBuilder('b')
-      .where('b.branchId = :branchId', { branchId: dto.branchId })
-      .andWhere('b.startTime < :endTime', { endTime })
-      .andWhere('b.endTime > :startTime', { startTime })
-      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
-      .getCount();
+    // 7 + 8. Lock branch, tạo customer mới (nếu cần), kiểm tra slot, tạo booking atomically (BUG-041 + BUG-044)
+    return this.dataSource.transaction(async (manager) => {
+      // Lock row branch để serialize concurrent booking creation cho cùng branch (BUG-041)
+      await manager.findOneOrFail(Branch, {
+        where: { id: dto.branchId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (overlapping >= maxBookings) {
-      throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
-    }
+      const overlapping = await manager
+        .createQueryBuilder(Booking, 'b')
+        .where('b.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getCount();
 
-    // 7. Create booking — walk-in starts as CheckedIn since the customer is already present
-    const booking = await this.bookingRepo.save(
-      this.bookingRepo.create({
-        customerId,
-        branchId: dto.branchId,
-        technicianId: dto.technicianId ?? null,
-        startTime,
-        endTime,
-        status: BookingStatus.CheckedIn,
-        source: BookingSource.WalkIn,
-        subtotalAmount: unitPrice,
-        discountAmount: 0,
-        depositRequiredAmount: 0,
-        paidAmount: 0,
-        remainingAmount: unitPrice,
-        notes: dto.notes ?? null,
-        checkedInAt: new Date(),
-        createdBy: staffId,
-      }),
-    );
+      if (overlapping >= maxBookings) {
+        throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
+      }
 
-    // 8. Create booking-service record
-    await this.bookingServiceRepo.save(
-      this.bookingServiceRepo.create({
-        bookingId: booking.id,
-        serviceId: dto.serviceId,
-        quantity: 1,
-        durationMinutes,
-        unitPrice,
-        discountAmount: 0,
-        finalAmount: unitPrice,
-      }),
-    );
+      // Tạo customer mới bên trong transaction — User và Booking commit/rollback cùng nhau (BUG-044)
+      if (needsNewCustomer) {
+        const newUser = await manager.save(
+          manager.create(User, {
+            fullName: newCustomerName,
+            phone: newCustomerPhone,
+            email: null,
+            passwordHash: null,
+            // Walk-in stubs have no credentials (passwordHash null, email null) — cannot authenticate
+            authProvider: AuthProvider.Email,
+            status: UserStatus.Active,
+            isActive: false,
+            role: UserRole.Customer,
+            gender: Gender.Unknown,
+            dateOfBirth: null,
+            address: null,
+          }),
+        );
+        customerId = newUser.id;
+      }
 
-    return booking;
+      const booking = await manager.save(
+        manager.create(Booking, {
+          customerId: customerId!,
+          branchId: dto.branchId,
+          technicianId: dto.technicianId ?? null,
+          startTime,
+          endTime,
+          status: BookingStatus.CheckedIn,
+          source: BookingSource.WalkIn,
+          subtotalAmount: unitPrice,
+          discountAmount: 0,
+          depositRequiredAmount: 0,
+          paidAmount: 0,
+          remainingAmount: unitPrice,
+          notes: dto.notes ?? null,
+          checkedInAt: new Date(),
+          createdBy: staffId,
+        }),
+      );
+
+      await manager.save(
+        manager.create(BookingServiceEntity, {
+          bookingId: booking.id,
+          serviceId: dto.serviceId,
+          quantity: 1,
+          durationMinutes,
+          unitPrice,
+          discountAmount: 0,
+          finalAmount: unitPrice,
+        }),
+      );
+
+      return booking;
+    });
   }
 
   // UC14 — Apply Discount Code
@@ -657,7 +735,7 @@ export class BookingService {
       throw new BadRequestException('Discount codes can only be applied to upcoming bookings');
     }
 
-    // 3. Prevent applying a second discount
+    // 3. Prevent applying a second discount (fast path — re-checked under lock)
     if (booking.discountCodeId) {
       throw new BadRequestException('A discount code has already been applied to this booking');
     }
@@ -687,17 +765,7 @@ export class BookingService {
       throw new BadRequestException('This discount code is not valid at this branch');
     }
 
-    // 8. Check total usage limit on the discount code
-    if (discountCode.usageLimitTotal !== null && discountCode.usedCount >= discountCode.usageLimitTotal) {
-      throw new BadRequestException(`Discount code "${dto.code}" has reached its usage limit`);
-    }
-
-    // 9. Check total usage limit on the promotion
-    if (promotion.usageLimitTotal !== null && promotion.usedCount >= promotion.usageLimitTotal) {
-      throw new BadRequestException('This promotion has reached its total usage limit');
-    }
-
-    // 10. Check per-customer usage limit
+    // 10. Check per-customer usage limit (read-only, pre-check)
     if (discountCode.usageLimitPerCustomer !== null) {
       const customerUses = await this.bookingRepo.count({ where: { customerId, discountCodeId: discountCode.id } });
       if (customerUses >= discountCode.usageLimitPerCustomer) {
@@ -714,7 +782,7 @@ export class BookingService {
       }
     }
 
-    // 12. Calculate discount amount
+    // 12. Calculate discount amount (pure computation, safe outside tx)
     const discountValue = parseFloat(promotion.discountValue as unknown as string);
     let discountAmount: number;
     if (promotion.discountType === DiscountType.FixedAmount) {
@@ -728,21 +796,52 @@ export class BookingService {
     discountAmount = Math.round(discountAmount * 100) / 100;
 
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
-    const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
-    const newDepositRequiredAmount =
-      booking.status === BookingStatus.PendingPayment ? Math.round((subtotal - discountAmount) * 0.1) : booking.depositRequiredAmount;
 
-    // 13. Update booking with discount
-    await this.bookingRepo.update(id, {
-      discountCodeId: discountCode.id,
-      discountAmount,
-      depositRequiredAmount: newDepositRequiredAmount,
-      remainingAmount: newRemainingAmount,
+    // 13-14. Atomic: lock rows → re-check limits → update booking + increment counts
+    await this.dataSource.transaction(async (manager) => {
+      // Lock discount code to serialize concurrent apply-discount calls
+      const lockedCode = await manager.findOne(DiscountCode, {
+        where: { id: discountCode.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedCode) throw new NotFoundException(`Discount code "${dto.code}" not found`);
+
+      // Re-check usage limits under lock (guards against TOCTOU race)
+      if (lockedCode.usageLimitTotal !== null && lockedCode.usedCount >= lockedCode.usageLimitTotal) {
+        throw new BadRequestException(`Discount code "${dto.code}" has reached its usage limit`);
+      }
+      if (promotion.usageLimitTotal !== null) {
+        const freshPromo = await manager.findOne(Promotion, { where: { id: promotion.id } });
+        if (freshPromo && freshPromo.usedCount >= promotion.usageLimitTotal) {
+          throw new BadRequestException('This promotion has reached its total usage limit');
+        }
+      }
+
+      // Lock booking row to prevent concurrent double-discount
+      const lockedBooking = await manager.findOne(Booking, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedBooking) throw new NotFoundException(`Booking ${id} not found`);
+      if (lockedBooking.discountCodeId) {
+        throw new BadRequestException('A discount code has already been applied to this booking');
+      }
+
+      const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
+      const newDepositRequiredAmount =
+        lockedBooking.status === BookingStatus.PendingPayment
+          ? Math.round((subtotal - discountAmount) * DEPOSIT_RATE)
+          : lockedBooking.depositRequiredAmount;
+
+      await manager.update(Booking, id, {
+        discountCodeId: lockedCode.id,
+        discountAmount,
+        depositRequiredAmount: newDepositRequiredAmount,
+        remainingAmount: newRemainingAmount,
+      });
+      await manager.increment(DiscountCode, { id: lockedCode.id }, 'usedCount', 1);
+      await manager.increment(Promotion, { id: promotion.id }, 'usedCount', 1);
     });
-
-    // 14. Increment usage counts
-    await this.discountCodeRepo.increment({ id: discountCode.id }, 'usedCount', 1);
-    await this.promotionRepo.increment({ id: promotion.id }, 'usedCount', 1);
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
@@ -761,6 +860,8 @@ export class BookingService {
     branchId: string,
     requesterId: string,
     requesterRole: string,
+    date?: string,
+    limit = 100,
   ): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
     if (requesterRole !== UserRole.Owner) {
       const assignment = await this.branchStaffRepo.findOne({
@@ -769,22 +870,37 @@ export class BookingService {
       if (!assignment) throw new ForbiddenException('You are not active at this branch');
     }
 
-    const bookings = await this.bookingRepo.find({
-      where: { branchId },
-      order: { startTime: 'DESC' },
-      relations: ['customer', 'technician'],
-    });
+    const qb = this.bookingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.customer', 'customer')
+      .leftJoinAndSelect('b.technician', 'technician')
+      .where('b.branchId = :branchId', { branchId })
+      .orderBy('b.startTime', 'DESC')
+      .take(limit);
+
+    if (date) {
+      const dayStart = new Date(`${date}T00:00:00+07:00`);
+      const dayEnd = new Date(`${date}T23:59:59.999+07:00`);
+      qb.andWhere('b.startTime >= :dayStart', { dayStart })
+        .andWhere('b.startTime <= :dayEnd', { dayEnd });
+    }
+
+    const bookings = await qb.getMany();
     return this.attachServices(bookings);
   }
 
-  async findOne(id: string, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+  async findOne(id: string, requesterId: string, requesterRole: string, requesterBranchId?: string | null): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
-    const isOwner = requesterRole === UserRole.Owner || requesterRole === UserRole.Staff || requesterRole === UserRole.Manager;
-    if (!isOwner && booking.customerId !== requesterId) {
-      throw new ForbiddenException('You do not have access to this booking');
+    if (requesterRole === UserRole.Customer) {
+      if (booking.customerId !== requesterId) throw new ForbiddenException('You do not have access to this booking');
+    } else if (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager) {
+      if (requesterBranchId && booking.branchId !== requesterBranchId) {
+        throw new ForbiddenException('You do not have access to bookings at this branch');
+      }
     }
+    // Owner has no branch restriction
 
     const [withServices] = await this.attachServices([booking]);
     return withServices;
@@ -872,20 +988,37 @@ export class BookingService {
       order: { staffCode: 'ASC' },
     });
 
-    for (const technician of technicians) {
-      const scheduledCount = await this.scheduleRequestRepo
+    if (technicians.length === 0) {
+      throw new ConflictException('No technician is available for the selected time slot. Please choose another time.');
+    }
+
+    const techIds = technicians.map(t => t.userId);
+
+    // Pre-load shifts and bookings for all technicians (BUG-046: replaces per-tech DB queries)
+    const [coveredShifts, overlappingBookings] = await Promise.all([
+      this.scheduleRequestRepo
         .createQueryBuilder('sr')
-        .where('sr.staffId = :technicianId', { technicianId: technician.userId })
+        .where('sr.staffId IN (:...techIds)', { techIds })
         .andWhere('sr.branchId = :branchId', { branchId })
         .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
         .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
         .andWhere('sr.requestedStart <= :start', { start: startTime })
         .andWhere('sr.requestedEnd >= :end', { end: endTime })
-        .getCount();
-      if (scheduledCount === 0) continue;
+        .getMany(),
+      this.bookingRepo
+        .createQueryBuilder('b')
+        .where('b.technicianId IN (:...techIds)', { techIds })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getMany(),
+    ]);
 
-      const overlapping = await this.countTechnicianOverlaps(technician.userId, startTime, endTime);
-      if (overlapping === 0) return technician.userId;
+    for (const technician of technicians) {
+      const isScheduled = coveredShifts.some(s => s.staffId === technician.userId);
+      if (!isScheduled) continue;
+      const hasOverlap = overlappingBookings.some(b => b.technicianId === technician.userId);
+      if (!hasOverlap) return technician.userId;
     }
 
     throw new ConflictException('No technician is available for the selected time slot. Please choose another time.');

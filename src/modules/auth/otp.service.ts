@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { randomInt } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { OtpVerification } from 'src/modules/user/entities/otp-verification.entity';
 import { ERROR_CODES } from 'src/common/constants/error-codes';
@@ -73,7 +74,7 @@ export class OtpService {
   }
 
   private generateCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return randomInt(100000, 1000000).toString();
   }
 
   @Cron(CronExpression.EVERY_HOUR)
