@@ -1,10 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
 import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { Review } from 'src/modules/review/entities/review.entity';
+import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { ApprovalStatus } from './enums/approval-status.enum';
 import { ScheduleRequestType } from './enums/schedule-request-type.enum';
 import { ScheduleStatus } from './enums/schedule-status.enum';
@@ -33,6 +35,9 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(Review)
+    private readonly reviewRepo: Repository<Review>,
+    private readonly dataSource: DataSource,
   ) {}
 
   // UC21 — Submit schedule request
@@ -203,20 +208,25 @@ export class ScheduleService {
     await this.assertManagerAtBranch(managerId, request.branchId);
 
     const now = new Date();
-    await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
 
-    await this.staffScheduleRepo.save(
-      this.staffScheduleRepo.create({
-        staffId: request.staffId,
-        branchId: request.branchId,
-        startTime: request.requestedStart,
-        endTime: request.requestedEnd,
-        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
-        status: ScheduleStatus.Active,
-        sourceRequestId: request.id,
-        createdBy: managerId,
-      }),
-    );
+    // The request's approval and the shift it creates must commit together — an
+    // approved request with no shift (or a shift with no approval record) is inconsistent.
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(ScheduleRequest, id, { status: ApprovalStatus.Approved, reviewedBy: managerId, reviewedAt: now });
+
+      await manager.save(
+        manager.create(StaffSchedule, {
+          staffId: request.staffId,
+          branchId: request.branchId,
+          startTime: request.requestedStart,
+          endTime: request.requestedEnd,
+          scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[request.requestType],
+          status: ScheduleStatus.Active,
+          sourceRequestId: request.id,
+          createdBy: managerId,
+        }),
+      );
+    });
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }
@@ -288,13 +298,15 @@ export class ScheduleService {
 
     const ratingsMap = new Map<string, number>();
     if (staffIds.length > 0) {
-      const ratingsRaw = await this.bookingRepo.query(
-        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
-           FROM reviews
-           WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
-           GROUP BY technician_id`,
-        staffIds,
-      );
+      const ratingsRaw = await this.reviewRepo
+        .createQueryBuilder('r')
+        .select('r.technicianId', 'technicianId')
+        .addSelect('AVG(r.rating)', 'avgRating')
+        .where('r.technicianId IN (:...staffIds)', { staffIds })
+        .andWhere('r.status = :status', { status: ReviewStatus.Published })
+        .groupBy('r.technicianId')
+        .getRawMany<{ technicianId: string; avgRating: string }>();
+
       for (const item of ratingsRaw) {
         ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
       }

@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { User } from './entities/user.entity';
+import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 
 export interface FindUserByEmailOptions {
   includePasswordHash: boolean;
@@ -24,30 +26,27 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly dataSource: DataSource,
+    @InjectRepository(BranchStaff)
+    private readonly branchStaffRepository: Repository<BranchStaff>,
   ) {}
 
   async getBranchInfo(userId: string): Promise<{ branchId: string | null; branchCode: string | null }> {
-    const result = await this.dataSource.query(
-      `SELECT bs.branch_id as "branchId", b.code as "branchCode"
-       FROM branch_staff bs
-       JOIN branches b ON bs.branch_id = b.id
-       WHERE bs.user_id = $1 AND bs.status = 'active'
-       LIMIT 1`,
-      [userId],
-    );
-    if (result && result.length > 0) {
-      return {
-        branchId: result[0].branchId.toString(),
-        branchCode: result[0].branchCode,
-      };
-    }
-    return { branchId: null, branchCode: null };
+    const assignment = await this.branchStaffRepository.findOne({
+      where: { userId, status: StaffStatus.Active },
+      relations: { branch: true },
+    });
+
+    if (!assignment) return { branchId: null, branchCode: null };
+
+    return {
+      branchId: assignment.branchId,
+      branchCode: assignment.branch?.code ?? null,
+    };
   }
 
   async findByEmail(email: string, options?: FindUserByEmailOptions): Promise<User | null> {
     const normalizedEmail = email.trim().toLowerCase();
-    let user: User | null = null;
+    let user: User | null;
 
     if (options?.includePasswordHash) {
       user = await this.userRepository
@@ -81,19 +80,25 @@ export class UserService {
     return user;
   }
 
-  async create(data: CreateUserData): Promise<User> {
-    const user = this.userRepository.create(data);
-    return this.userRepository.save(user);
+  async create(data: CreateUserData, manager?: EntityManager): Promise<User> {
+    const repo = manager ? manager.getRepository(User) : this.userRepository;
+    const user = repo.create(data);
+    return repo.save(user);
   }
 
-  async update(id: string, data: Partial<User>): Promise<User> {
-    await this.userRepository.update(id, data);
-    // findById will never return null here since we just updated a known user
-    return (await this.findById(id)) as User;
+  async update(id: string, data: Partial<User>, manager?: EntityManager): Promise<User> {
+    if (!manager) {
+      await this.userRepository.update(id, data);
+      // findById will never return null here since we just updated a known user
+      return (await this.findById(id)) as User;
+    }
+    const repo = manager.getRepository(User);
+    await repo.update(id, data);
+    // repo.findOne will never return null here since we just updated a known user
+    return (await repo.findOne({ where: { id } })) as User;
   }
 
   async updateLastLogin(id: string): Promise<void> {
     await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 }
-
