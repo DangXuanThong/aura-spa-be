@@ -5,7 +5,7 @@ import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { Payment } from './entities/payment.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
-import { BookingService as BookingServiceEntity } from 'src/modules/booking/entities/booking-service.entity';
+import { BookingService } from 'src/modules/booking/entities/booking-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
@@ -31,18 +31,14 @@ export class PaymentService {
     private readonly invoiceRepo: Repository<Invoice>,
     @InjectRepository(InvoiceItem)
     private readonly invoiceItemRepo: Repository<InvoiceItem>,
-    @InjectRepository(Payment)
-    private readonly paymentRepo: Repository<Payment>,
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
-    @InjectRepository(BookingServiceEntity)
-    private readonly bookingServiceRepo: Repository<BookingServiceEntity>,
+    @InjectRepository(BookingService)
+    private readonly bookingServiceRepo: Repository<BookingService>,
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
-    @InjectRepository(ServiceInventoryRequirement)
-    private readonly serviceInventoryRequirementRepo: Repository<ServiceInventoryRequirement>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -160,7 +156,7 @@ export class PaymentService {
   private async consumeInventoryForCompletedBooking(
     manager: EntityManager,
     booking: Booking,
-    bookingServices: BookingServiceEntity[],
+    bookingServices: BookingService[],
     staffId: string,
   ): Promise<void> {
     const serviceIds = [...new Set(bookingServices.map((item) => item.serviceId))];
