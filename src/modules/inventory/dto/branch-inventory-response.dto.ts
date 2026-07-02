@@ -39,7 +39,7 @@ export class BranchInventoryResponseDto {
   @ApiProperty({ example: 250.5 })
   currentQuantity!: number;
 
-  @ApiProperty({ example: 0, description: 'Not yet implemented — reserved for future inventory-reservation feature; always 0.' })
+  @ApiProperty({ example: 0 })
   reservedQuantity!: number;
 
   @ApiProperty({ example: true })

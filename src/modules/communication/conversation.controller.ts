@@ -1,6 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
-import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -22,8 +21,6 @@ export class ConversationController {
   // ── Public: guest inquiry routes (UC08 — Submit Online Inquiry) ──────────
 
   @Post()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiCreatedResponse({ description: 'Conversation started; save the returned ID to track replies', type: ConversationResponseDto })
   async create(@Body() dto: CreateConversationDto): Promise<ConversationResponseDto> {
     const { conversation } = await this.conversationService.createGuestConversation(dto);
@@ -31,41 +28,24 @@ export class ConversationController {
   }
 
   @Get(':id')
-  @ApiOkResponse({ description: 'Conversation detail — requires guestPhone or guestEmail matching the conversation', type: ConversationResponseDto })
-  @ApiForbiddenResponse({ description: 'guestPhone/guestEmail does not match the conversation' })
-  @ApiQuery({ name: 'guestPhone', required: false, description: 'Phone number provided when the conversation was created' })
-  @ApiQuery({ name: 'guestEmail', required: false, description: 'Email address provided when the conversation was created' })
-  async findOne(
-    @Param('id') id: string,
-    @Query('guestPhone') guestPhone?: string,
-    @Query('guestEmail') guestEmail?: string,
-  ): Promise<ConversationResponseDto> {
-    const result = await this.conversationService.findOneForGuest(id, guestPhone ?? null, guestEmail ?? null);
+  @ApiOkResponse({ description: 'Conversation detail', type: ConversationResponseDto })
+  async findOne(@Param('id') id: string): Promise<ConversationResponseDto> {
+    const result = await this.conversationService.findOne(id);
     return plainToInstance(ConversationResponseDto, result);
   }
 
   @Get(':id/messages')
-  @ApiOkResponse({ description: 'Messages in the conversation ordered oldest-first — requires guestPhone or guestEmail matching the conversation', type: [MessageResponseDto] })
-  @ApiForbiddenResponse({ description: 'guestPhone/guestEmail does not match the conversation' })
-  @ApiQuery({ name: 'guestPhone', required: false, description: 'Phone number provided when the conversation was created' })
-  @ApiQuery({ name: 'guestEmail', required: false, description: 'Email address provided when the conversation was created' })
-  async getMessages(
-    @Param('id') id: string,
-    @Query('guestPhone') guestPhone?: string,
-    @Query('guestEmail') guestEmail?: string,
-  ): Promise<MessageResponseDto[]> {
-    const messages = await this.conversationService.getMessagesForGuest(id, guestPhone ?? null, guestEmail ?? null);
+  @ApiOkResponse({ description: 'Messages in the conversation ordered oldest-first', type: [MessageResponseDto] })
+  async getMessages(@Param('id') id: string): Promise<MessageResponseDto[]> {
+    const messages = await this.conversationService.getMessages(id);
     return plainToInstance(MessageResponseDto, messages);
   }
 
   @Post(':id/messages')
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
-  @ApiCreatedResponse({ description: 'Guest message sent — requires guestPhone or guestEmail in body matching the conversation', type: MessageResponseDto })
-  @ApiForbiddenResponse({ description: 'guestPhone/guestEmail does not match the conversation' })
+  @ApiCreatedResponse({ description: 'Guest message sent', type: MessageResponseDto })
   async sendMessage(@Param('id') id: string, @Body() dto: SendMessageDto): Promise<MessageResponseDto> {
-    const message = await this.conversationService.sendGuestMessage(id, dto.message, dto.guestPhone ?? null, dto.guestEmail ?? null);
+    const message = await this.conversationService.sendGuestMessage(id, dto.message);
     return plainToInstance(MessageResponseDto, message);
   }
 

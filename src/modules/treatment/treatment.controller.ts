@@ -1,5 +1,4 @@
 import { Controller, Get, Param, Request, UseGuards } from '@nestjs/common';
-import { HealthRecord } from 'src/modules/health/entities/health-record.entity';
 import { ApiBearerAuth, ApiForbiddenResponse, ApiOkResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -13,32 +12,6 @@ import { TreatmentCourseResponseDto } from './dto/treatment-course-response.dto'
 @Controller('treatment-courses')
 export class TreatmentController {
   constructor(private readonly treatmentService: TreatmentService) {}
-
-  // ── Staff/Manager/Owner: view customer treatment courses (BUG-094) ─────────
-
-  @Get('customer/:customerId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)
-  @ApiBearerAuth('access-token')
-  @ApiOkResponse({ description: 'Treatment courses for the specified customer', type: [TreatmentCourseResponseDto] })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-  @ApiForbiddenResponse({ description: 'Staff, Manager or Owner role required' })
-  async findByCustomer(@Param('customerId') customerId: string): Promise<TreatmentCourseResponseDto[]> {
-    const courses = await this.treatmentService.findCoursesByCustomer(customerId);
-    return plainToInstance(TreatmentCourseResponseDto, courses);
-  }
-
-  // BUG-131 — Health contraindication check before delivering treatment
-  @Get('customer/:customerId/health-check')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.Staff, UserRole.Manager, UserRole.Owner)
-  @ApiBearerAuth('access-token')
-  @ApiOkResponse({ description: 'Health records with contraindications/allergies/pregnancy flags for the customer' })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-  @ApiForbiddenResponse({ description: 'Staff, Manager or Owner role required' })
-  async getCustomerHealthFlags(@Param('customerId') customerId: string): Promise<HealthRecord[]> {
-    return this.treatmentService.getCustomerHealthFlags(customerId);
-  }
 
   // ── Customer: treatment progress (UC16 — Track Treatment Progress) ──────────
 

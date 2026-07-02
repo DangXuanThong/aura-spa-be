@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, Patch, Query, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiForbiddenResponse, ApiOkResponse, ApiQuery, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
@@ -7,8 +7,6 @@ import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ReportService } from './report.service';
-import { BranchDailyAggregateService } from './branch-daily-aggregate.service';
-import { CustomerBehaviorService } from './customer-behavior.service';
 import { BranchPerformanceReportDto } from './dto/branch-performance-report.dto';
 import { RevenueDashboardDto, TrendGranularity } from './dto/revenue-dashboard.dto';
 import { BranchRankingsDto, PopularServicesRankingsDto, TopStaffRankingsDto } from './dto/performance-rankings.dto';
@@ -46,11 +44,7 @@ class RankingQueryDto extends ReportQueryDto {
 @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
 @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
 export class ReportController {
-  constructor(
-    private readonly reportService: ReportService,
-    private readonly aggregateService: BranchDailyAggregateService,
-    private readonly customerBehaviorService: CustomerBehaviorService,
-  ) {}
+  constructor(private readonly reportService: ReportService) {}
 
   // ── UC36: Owner — cross-branch revenue dashboard ─────────────────────────────
 
@@ -136,76 +130,5 @@ export class ReportController {
     @Request() req: any,
   ): Promise<any> {
     return this.reportService.getManagerDashboard(branchId, req.user.id, req.user.role);
-  }
-
-  // ── P-1: BranchDailyAggregate endpoints ──────────────────────────────────────
-
-  @Get('daily-aggregates')
-  @Roles(UserRole.Owner)
-  @ApiOkResponse({ description: 'Daily aggregates across all branches (last 90 rows)' })
-  async getAllDailyAggregates(): Promise<any> {
-    const data = await this.aggregateService.findAll();
-    return { success: true, data };
-  }
-
-  @Get('daily-aggregates/branch/:branchId')
-  @Roles(UserRole.Owner, UserRole.Manager)
-  @ApiOkResponse({ description: 'Daily aggregates for a specific branch (last 30 days)' })
-  async getBranchDailyAggregates(@Param('branchId') branchId: string): Promise<any> {
-    const data = await this.aggregateService.findByBranch(branchId);
-    return { success: true, data };
-  }
-
-  @Get('daily-aggregates/recompute/:date')
-  @Roles(UserRole.Owner)
-  @ApiOkResponse({ description: 'Manually trigger aggregation for a given date (YYYY-MM-DD)' })
-  async recomputeAggregates(@Param('date') date: string): Promise<any> {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date).getTime())) {
-      throw new BadRequestException('date must be in YYYY-MM-DD format');
-    }
-    await this.aggregateService.aggregateForDate(date);
-    return { success: true, message: `Aggregation triggered for ${date}` };
-  }
-
-  // ── P-4: mv_customer_behavior endpoints ──────────────────────────────────────
-
-  @Get('customer-behavior')
-  @Roles(UserRole.Owner)
-  @ApiOkResponse({ description: 'All customer behavior stats from mv_customer_behavior (top 100 by spend)' })
-  async getCustomerBehavior(): Promise<any> {
-    const data = await this.customerBehaviorService.findAll();
-    return { success: true, data };
-  }
-
-  @Get('customer-behavior/top-spenders')
-  @Roles(UserRole.Owner, UserRole.Manager)
-  @ApiOkResponse({ description: 'Top 20 customers by total spend' })
-  async getTopSpenders(): Promise<any> {
-    const data = await this.customerBehaviorService.findTopSpenders();
-    return { success: true, data };
-  }
-
-  @Get('customer-behavior/at-risk')
-  @Roles(UserRole.Owner, UserRole.Manager)
-  @ApiOkResponse({ description: 'Customers who have not returned in 90+ days (churn risk)' })
-  async getAtRiskCustomers(): Promise<any> {
-    const data = await this.customerBehaviorService.findAtRisk();
-    return { success: true, data };
-  }
-
-  @Get('customer-behavior/:customerId')
-  @Roles(UserRole.Owner, UserRole.Manager)
-  @ApiOkResponse({ description: 'Behavior stats for a specific customer' })
-  async getCustomerBehaviorById(@Param('customerId') customerId: string): Promise<any> {
-    const rows = await this.customerBehaviorService.findOne(customerId);
-    return { success: true, data: rows[0] ?? null };
-  }
-
-  @Patch('customer-behavior/refresh')
-  @Roles(UserRole.Owner)
-  @ApiOkResponse({ description: 'Manually trigger REFRESH MATERIALIZED VIEW CONCURRENTLY' })
-  async refreshCustomerBehavior(): Promise<any> {
-    await this.customerBehaviorService.refreshView();
-    return { success: true, message: 'mv_customer_behavior refreshed' };
   }
 }

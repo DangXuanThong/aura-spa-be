@@ -1,11 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { BranchInventory } from './entities/branch-inventory.entity';
 import { InventoryTransaction } from './entities/inventory-transaction.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
-import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { InventoryTransactionType } from './enums/inventory-transaction-type.enum';
 import { ImportStockDto } from './dto/import-stock.dto';
 import { ConsumeStockDto } from './dto/consume-stock.dto';
@@ -20,14 +19,11 @@ export class InventoryService {
     private readonly transactionRepo: Repository<InventoryTransaction>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
-    private readonly dataSource: DataSource,
   ) {}
 
   // UC30 — List current stock levels for a branch
-  async listByBranch(branchId: string, managerId: string, role: string): Promise<BranchInventory[]> {
-    if (role !== UserRole.Owner) {
-      await this.assertManagerAtBranch(managerId, branchId);
-    }
+  async listByBranch(branchId: string, managerId: string): Promise<BranchInventory[]> {
+    await this.assertManagerAtBranch(managerId, branchId);
 
     return this.branchInventoryRepo.find({
       where: { branchId },
@@ -37,103 +33,82 @@ export class InventoryService {
   }
 
   // UC30 — Import new stock
-  async importStock(branchId: string, dto: ImportStockDto, managerId: string, role: string): Promise<InventoryTransaction> {
-    if (role !== UserRole.Owner) {
-      await this.assertManagerAtBranch(managerId, branchId);
-    }
+  async importStock(branchId: string, dto: ImportStockDto, managerId: string): Promise<InventoryTransaction> {
+    await this.assertManagerAtBranch(managerId, branchId);
 
-    return this.dataSource.transaction(async (manager) => {
-      const row = await manager.findOne(BranchInventory, {
-        where: { branchId, inventoryItemId: dto.inventoryItemId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
+    const row = await this.branchInventoryRepo.findOne({ where: { branchId, inventoryItemId: dto.inventoryItemId } });
+    if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
 
-      const before = parseFloat(row.currentQuantity as unknown as string);
-      const after = before + dto.quantity;
+    const before = parseFloat(row.currentQuantity as unknown as string);
+    const after = before + dto.quantity;
 
-      await manager.update(BranchInventory, row.id, { currentQuantity: after, lastTransactionAt: new Date() });
+    await this.branchInventoryRepo.update(row.id, { currentQuantity: after, lastTransactionAt: new Date() });
 
-      return manager.save(
-        manager.create(InventoryTransaction, {
-          branchId,
-          inventoryItemId: dto.inventoryItemId,
-          transactionType: InventoryTransactionType.Import,
-          quantityDelta: dto.quantity,
-          quantityAfter: after,
-          reason: dto.reason ?? null,
-          createdBy: managerId,
-        }),
-      );
-    });
+    return this.transactionRepo.save(
+      this.transactionRepo.create({
+        branchId,
+        inventoryItemId: dto.inventoryItemId,
+        transactionType: InventoryTransactionType.Import,
+        quantityDelta: dto.quantity,
+        quantityAfter: after,
+        reason: dto.reason ?? null,
+        createdBy: managerId,
+      }),
+    );
   }
 
   // UC30 — Record consumable usage
-  async consumeStock(branchId: string, dto: ConsumeStockDto, managerId: string, role: string): Promise<InventoryTransaction> {
-    if (role !== UserRole.Owner) {
-      await this.assertManagerAtBranch(managerId, branchId);
-    }
+  async consumeStock(branchId: string, dto: ConsumeStockDto, managerId: string): Promise<InventoryTransaction> {
+    await this.assertManagerAtBranch(managerId, branchId);
 
-    return this.dataSource.transaction(async (manager) => {
-      const row = await manager.findOne(BranchInventory, {
-        where: { branchId, inventoryItemId: dto.inventoryItemId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
+    const row = await this.branchInventoryRepo.findOne({ where: { branchId, inventoryItemId: dto.inventoryItemId } });
+    if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
 
-      const before = parseFloat(row.currentQuantity as unknown as string);
-      const after = before - dto.quantity;
+    const before = parseFloat(row.currentQuantity as unknown as string);
+    const after = before - dto.quantity;
 
-      if (after < 0) throw new BadRequestException('Insufficient stock — consumption would result in negative quantity');
+    if (after < 0) throw new BadRequestException('Insufficient stock — consumption would result in negative quantity');
 
-      await manager.update(BranchInventory, row.id, { currentQuantity: after, lastTransactionAt: new Date() });
+    await this.branchInventoryRepo.update(row.id, { currentQuantity: after, lastTransactionAt: new Date() });
 
-      return manager.save(
-        manager.create(InventoryTransaction, {
-          branchId,
-          inventoryItemId: dto.inventoryItemId,
-          transactionType: InventoryTransactionType.Consume,
-          quantityDelta: -dto.quantity,
-          quantityAfter: after,
-          bookingId: dto.bookingId ?? null,
-          serviceId: dto.serviceId ?? null,
-          reason: dto.reason ?? null,
-          createdBy: managerId,
-        }),
-      );
-    });
+    return this.transactionRepo.save(
+      this.transactionRepo.create({
+        branchId,
+        inventoryItemId: dto.inventoryItemId,
+        transactionType: InventoryTransactionType.Consume,
+        quantityDelta: -dto.quantity,
+        quantityAfter: after,
+        bookingId: dto.bookingId ?? null,
+        serviceId: dto.serviceId ?? null,
+        reason: dto.reason ?? null,
+        createdBy: managerId,
+      }),
+    );
   }
 
   // UC30 — Periodic stock check / correction
-  async stockCheck(branchId: string, dto: StockCheckDto, managerId: string, role: string): Promise<InventoryTransaction> {
-    if (role !== UserRole.Owner) {
-      await this.assertManagerAtBranch(managerId, branchId);
-    }
+  async stockCheck(branchId: string, dto: StockCheckDto, managerId: string): Promise<InventoryTransaction> {
+    await this.assertManagerAtBranch(managerId, branchId);
 
-    return this.dataSource.transaction(async (manager) => {
-      const row = await manager.findOne(BranchInventory, {
-        where: { branchId, inventoryItemId: dto.inventoryItemId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
+    const row = await this.branchInventoryRepo.findOne({ where: { branchId, inventoryItemId: dto.inventoryItemId } });
+    if (!row) throw new NotFoundException(`Inventory item ${dto.inventoryItemId} not found at branch ${branchId}`);
 
-      const before = parseFloat(row.currentQuantity as unknown as string);
-      const delta = dto.actualQuantity - before;
+    const before = parseFloat(row.currentQuantity as unknown as string);
+    const delta = dto.actualQuantity - before;
 
-      await manager.update(BranchInventory, row.id, { currentQuantity: dto.actualQuantity, lastTransactionAt: new Date() });
+    await this.branchInventoryRepo.update(row.id, { currentQuantity: dto.actualQuantity, lastTransactionAt: new Date() });
 
-      return manager.save(
-        manager.create(InventoryTransaction, {
-          branchId,
-          inventoryItemId: dto.inventoryItemId,
-          transactionType: InventoryTransactionType.StockCheckCorrection,
-          quantityDelta: delta,
-          quantityAfter: dto.actualQuantity,
-          reason: dto.reason ?? null,
-          createdBy: managerId,
-        }),
-      );
-    });
+    return this.transactionRepo.save(
+      this.transactionRepo.create({
+        branchId,
+        inventoryItemId: dto.inventoryItemId,
+        transactionType: InventoryTransactionType.StockCheckCorrection,
+        quantityDelta: delta,
+        quantityAfter: dto.actualQuantity,
+        reason: dto.reason ?? null,
+        createdBy: managerId,
+      }),
+    );
   }
 
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {

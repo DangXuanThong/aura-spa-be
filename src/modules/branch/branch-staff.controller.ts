@@ -157,7 +157,7 @@ export class BranchStaffController {
   @ApiOkResponse({ description: 'Booking slot configs for the branch', type: [SlotConfigResponseDto] })
   @ApiNotFoundResponse({ description: 'Branch not found' })
   async listSlotConfigs(@Param('branchId') branchId: string, @Request() req: any): Promise<SlotConfigResponseDto[]> {
-    const configs = await this.slotConfigService.list(branchId, req.user.id, req.user.role);
+    const configs = await this.slotConfigService.list(branchId, req.user.id);
     return plainToInstance(SlotConfigResponseDto, configs);
   }
 
@@ -173,7 +173,7 @@ export class BranchStaffController {
     @Body() dto: UpdateSlotConfigDto,
     @Request() req: any,
   ): Promise<SlotConfigResponseDto> {
-    const config = await this.slotConfigService.update(branchId, id, dto, req.user.id, req.user.role);
+    const config = await this.slotConfigService.update(branchId, id, dto, req.user.id);
     return plainToInstance(SlotConfigResponseDto, config);
   }
 }

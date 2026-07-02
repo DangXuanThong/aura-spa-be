@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsString, Matches } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 import { Gender } from 'src/modules/user/enums/gender.enum';
 import { StaffPosition } from '../enums/staff-position.enum';
 
@@ -16,7 +16,7 @@ export class UpdateStaffDto {
 
   @ApiPropertyOptional({ example: '0901234567' })
   @IsOptional()
-  @Matches(/^\d{10}$/, { message: 'phone must be a 10-digit number' })
+  @IsString()
   phone?: string;
 
   @ApiPropertyOptional({ enum: Gender, enumName: 'Gender' })
