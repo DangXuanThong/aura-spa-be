@@ -20,6 +20,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { ReportModule } from './modules/report/report.module';
 import { databaseConfig } from './config/database.config';
+import { sepayConfig } from './modules/payment/infrastructure/sepay/sepay.config';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { SeederModule } from 'src/database/seeds/seeder.module';
 import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module';
@@ -44,7 +45,7 @@ class DatabaseHealthLogger implements OnModuleInit {
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig],
+      load: [databaseConfig, sepayConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

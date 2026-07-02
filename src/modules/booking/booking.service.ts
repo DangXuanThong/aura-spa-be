@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { vietnamDate } from 'src/common/utils/vietnam-date';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
@@ -39,13 +40,11 @@ import { Gender } from 'src/modules/user/enums/gender.enum';
 import { Invoice } from 'src/modules/payment/entities/invoice.entity';
 import { Payment } from 'src/modules/payment/entities/payment.entity';
 import { InvoiceStatus } from 'src/modules/payment/enums/invoice-status.enum';
-import { PaymentMethod } from 'src/modules/payment/enums/payment-method.enum';
 import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
-import { PaymentType } from 'src/modules/payment/enums/payment-type.enum';
 import { BOOKING_EVENTS } from 'src/common/constants/events';
+import { SepayConfig } from 'src/modules/payment/infrastructure/sepay/sepay.config';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
-const DEPOSIT_RATE = 0.1; // 10% of service price — configurable per branch/service in a future milestone
 
 function normalizeVietnamPhone(phone: string): string {
   const compact = phone.replace(/\s/g, '');
@@ -76,11 +75,10 @@ export class BookingService {
     private readonly discountCodeRepo: Repository<DiscountCode>,
     @InjectRepository(Promotion)
     private readonly promotionRepo: Repository<Promotion>,
-    @InjectRepository(Payment)
-    private readonly paymentRepo: Repository<Payment>,
     private readonly userService: UserService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   // UC10 — Book Appointment
@@ -102,7 +100,9 @@ export class BookingService {
 
     const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
     const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
-    const depositAmount = Math.round(unitPrice * DEPOSIT_RATE);
+    const depositPercent = this.configService.get<SepayConfig>('sepay', { infer: true })!.depositPercent;
+    const depositAmount = depositPercent > 0 ? Math.round(unitPrice * (depositPercent / 100)) : 0;
+    const initialStatus = depositAmount > 0 ? BookingStatus.PendingPayment : BookingStatus.Confirmed;
 
     // 3. Compute start/end times
     const startTime = new Date(dto.startTime);
@@ -156,7 +156,7 @@ export class BookingService {
           technicianId,
           startTime,
           endTime,
-          status: BookingStatus.PendingPayment,
+          status: initialStatus,
           source: BookingSource.Online,
           subtotalAmount: unitPrice,
           discountAmount: 0,
@@ -188,52 +188,6 @@ export class BookingService {
       branchId: booking.branchId,
     });
     return booking;
-  }
-
-  async payDeposit(id: string, customerId: string, paymentMethod: PaymentMethod = PaymentMethod.EWallet): Promise<Booking> {
-    const booking = await this.bookingRepo.findOne({ where: { id } });
-    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
-    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
-    if (booking.status !== BookingStatus.PendingPayment) {
-      throw new BadRequestException('Only bookings waiting for deposit can be paid');
-    }
-
-    const depositAmount = parseFloat(booking.depositRequiredAmount as unknown as string);
-    if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
-      throw new BadRequestException('This booking does not require a deposit');
-    }
-
-    const paidAmount = parseFloat(booking.paidAmount as unknown as string);
-    const subtotalAmount = parseFloat(booking.subtotalAmount as unknown as string);
-    const discountAmount = parseFloat(booking.discountAmount as unknown as string);
-    const totalAfterDiscount = Math.max(0, subtotalAmount - discountAmount);
-    const nextPaidAmount = Math.min(totalAfterDiscount, paidAmount + depositAmount);
-    const nextRemainingAmount = Math.max(0, totalAfterDiscount - nextPaidAmount);
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.save(
-        manager.create(Payment, {
-          invoiceId: null,
-          bookingId: booking.id,
-          customerId: booking.customerId,
-          branchId: booking.branchId,
-          paymentType: PaymentType.Deposit,
-          paymentMethod,
-          status: PaymentStatus.Paid,
-          amount: depositAmount,
-          paidAt: new Date(),
-          receivedBy: null,
-        }),
-      );
-
-      await manager.update(Booking, id, {
-        status: BookingStatus.Confirmed,
-        paidAmount: nextPaidAmount,
-        remainingAmount: nextRemainingAmount,
-      });
-    });
-
-    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
 
   // UC11 — Reschedule Appointment
@@ -828,9 +782,10 @@ export class BookingService {
       }
 
       const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
+      const depositPercent = this.configService.get<SepayConfig>('sepay', { infer: true })!.depositPercent;
       const newDepositRequiredAmount =
         lockedBooking.status === BookingStatus.PendingPayment
-          ? Math.round((subtotal - discountAmount) * DEPOSIT_RATE)
+          ? Math.round((subtotal - discountAmount) * (depositPercent / 100))
           : lockedBooking.depositRequiredAmount;
 
       await manager.update(Booking, id, {
@@ -896,7 +851,11 @@ export class BookingService {
     if (requesterRole === UserRole.Customer) {
       if (booking.customerId !== requesterId) throw new ForbiddenException('You do not have access to this booking');
     } else if (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager) {
-      if (requesterBranchId && booking.branchId !== requesterBranchId) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
+      });
+
+      if (!assignment) {
         throw new ForbiddenException('You do not have access to bookings at this branch');
       }
     }

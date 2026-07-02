@@ -11,7 +11,6 @@ import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.
 import { Service } from 'src/modules/service/entities/service.entity';
 import { DiscountCode } from 'src/modules/promotion/entities/discount-code.entity';
 import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
-import { Payment } from 'src/modules/payment/entities/payment.entity';
 import { BookingController } from './booking.controller';
 import { BookingAvailabilityService } from './booking-availability.service';
 import { BookingService } from './booking.service';
@@ -33,7 +32,6 @@ import { UserModule } from 'src/modules/user/user.module';
       Service,
       DiscountCode,
       Promotion,
-      Payment,
     ]),
     AuthModule,
     UserModule,

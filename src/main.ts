@@ -11,7 +11,8 @@ import { SocketIOAdapter } from 'src/common/adapters/socket-io.adapter';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true preserves req.rawBody for SePay HMAC verification (must not re-serialize JSON).
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService = app.get(ConfigService);
 
   const isProduction = configService.get<string>('NODE_ENV') === 'production';
