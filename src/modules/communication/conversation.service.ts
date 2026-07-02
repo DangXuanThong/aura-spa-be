@@ -1,6 +1,12 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
+import { ScheduleType } from 'src/modules/schedule/enums/schedule-type.enum';
+import { ScheduleStatus } from 'src/modules/schedule/enums/schedule-status.enum';
+import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
+import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { User } from 'src/modules/user/entities/user.entity';
@@ -17,6 +23,10 @@ export class ConversationService {
     private readonly conversationRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    @InjectRepository(StaffSchedule)
+    private readonly staffScheduleRepo: Repository<StaffSchedule>,
+    @InjectRepository(BranchStaff)
+    private readonly branchStaffRepo: Repository<BranchStaff>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -113,23 +123,24 @@ export class ConversationService {
 
     if (requesterRole === UserRole.Staff && requesterId) {
       const now = new Date();
-      const shift = await this.conversationRepo.manager.query(
-        `SELECT id FROM staff_schedules
-         WHERE staff_id = $1
-           AND schedule_type = 'working'
-           AND status = 'active'
-           AND start_time <= $2
-           AND end_time >= $2
-           LIMIT 1`,
-        [requesterId, now],
-      );
-      const isOnShift = shift && shift.length > 0;
+      const shift = await this.staffScheduleRepo.findOne({
+        where: {
+          staffId: requesterId,
+          scheduleType: ScheduleType.Working,
+          status: ScheduleStatus.Active,
+          startTime: LessThanOrEqual(now),
+          endTime: MoreThanOrEqual(now),
+        },
+        select: ['id'],
+      });
+      const isOnShift = !!shift;
 
-      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
-        requesterId,
-      ]);
-      if (isOnShift && bs && bs.length > 0) {
-        const staffBranchId = bs[0].branch_id;
+      const staffBranch = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, status: StaffStatus.Active },
+        select: ['branchId'],
+      });
+      if (isOnShift && staffBranch) {
+        const staffBranchId = staffBranch.branchId;
         query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId = :staffBranchId))', {
           openStatus: ConversationStatus.Open,
           requesterId,
@@ -141,11 +152,12 @@ export class ConversationService {
     }
 
     if (requesterRole === UserRole.Manager && requesterId) {
-      const bs = await this.conversationRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
-        requesterId,
-      ]);
-      if (bs && bs.length > 0) {
-        const mgrBranchId = bs[0].branch_id;
+      const mgrBranch = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, status: StaffStatus.Active },
+        select: ['branchId'],
+      });
+      if (mgrBranch) {
+        const mgrBranchId = mgrBranch.branchId;
         query.andWhere('(c.branchId = :mgrBranchId OR c.assignedStaffId = :requesterId)', {
           mgrBranchId,
           requesterId,
@@ -163,24 +175,27 @@ export class ConversationService {
     this.assertCanHandleConversation(conversation, requesterId, requesterRole);
 
     if (!conversation.branchId && (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager)) {
-      const bs = await this.messageRepo.manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [
-        requesterId,
-      ]);
-      if (bs && bs.length > 0) {
-        conversation.branchId = bs[0].branch_id;
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, status: StaffStatus.Active },
+        select: ['branchId'],
+      });
+      if (assignment) {
+        conversation.branchId = assignment.branchId;
       }
     }
 
     if (requesterRole === UserRole.Staff && dto.assignedStaffId && dto.assignedStaffId !== requesterId) {
       if (dto.assignedStaffId === 'manager') {
-        const managerAssignment = await this.messageRepo.manager.query(
-          `SELECT user_id FROM branch_staff
-           WHERE branch_id = $1 AND position = 'manager' AND status = 'active'
-             LIMIT 1`,
-          [conversation.branchId],
-        );
-        if (managerAssignment && managerAssignment.length > 0) {
-          dto.assignedStaffId = managerAssignment[0].user_id.toString();
+        const managerAssignment = await this.branchStaffRepo.findOne({
+          where: {
+            branchId: conversation.branchId!,
+            position: StaffPosition.Manager,
+            status: StaffStatus.Active,
+          },
+          select: ['userId'],
+        });
+        if (managerAssignment) {
+          dto.assignedStaffId = managerAssignment.userId;
           dto.status = ConversationStatus.Assigned;
         } else {
           conversation.assignedStaffId = null;
@@ -205,9 +220,12 @@ export class ConversationService {
         conversation.status = ConversationStatus.Assigned;
         conversation.assignedStaffId = staffUserId;
         if (!conversation.branchId) {
-          const bs = await manager.query("SELECT branch_id FROM branch_staff WHERE user_id = $1 AND status = 'active' LIMIT 1", [staffUserId]);
-          if (bs && bs.length > 0) {
-            conversation.branchId = bs[0].branch_id;
+          const assignment = await manager.getRepository(BranchStaff).findOne({
+            where: { userId: staffUserId, status: StaffStatus.Active },
+            select: ['branchId'],
+          });
+          if (assignment) {
+            conversation.branchId = assignment.branchId;
           }
         }
         await manager.save(conversation);

@@ -5,6 +5,8 @@ import { ScheduleRequest } from './entities/schedule-request.entity';
 import { StaffSchedule } from './entities/staff-schedule.entity';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { Review } from 'src/modules/review/entities/review.entity';
+import { ReviewStatus } from 'src/modules/review/enums/review-status.enum';
 import { ApprovalStatus } from './enums/approval-status.enum';
 import { ScheduleRequestType } from './enums/schedule-request-type.enum';
 import { ScheduleStatus } from './enums/schedule-status.enum';
@@ -33,6 +35,8 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(Review)
+    private readonly reviewRepo: Repository<Review>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -294,13 +298,15 @@ export class ScheduleService {
 
     const ratingsMap = new Map<string, number>();
     if (staffIds.length > 0) {
-      const ratingsRaw = await this.bookingRepo.query(
-        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
-         FROM reviews
-         WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
-         GROUP BY technician_id`,
-        staffIds,
-      );
+      const ratingsRaw = await this.reviewRepo
+        .createQueryBuilder('r')
+        .select('r.technicianId', 'technicianId')
+        .addSelect('AVG(r.rating)', 'avgRating')
+        .where('r.technicianId IN (:...staffIds)', { staffIds })
+        .andWhere('r.status = :status', { status: ReviewStatus.Published })
+        .groupBy('r.technicianId')
+        .getRawMany<{ technicianId: string; avgRating: string }>();
+
       for (const item of ratingsRaw) {
         ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
       }

@@ -4,10 +4,9 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService as BookingServiceEntity } from './entities/booking-service.entity';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
-import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
+import { BranchService } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
-import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
@@ -55,14 +54,12 @@ export class BookingService {
     private readonly bookingServiceRepo: Repository<BookingServiceEntity>,
     @InjectRepository(BookingSlotConfig)
     private readonly slotConfigRepo: Repository<BookingSlotConfig>,
-    @InjectRepository(BranchServiceEntity)
-    private readonly branchServiceRepo: Repository<BranchServiceEntity>,
+    @InjectRepository(BranchService)
+    private readonly branchServiceRepo: Repository<BranchService>,
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
-    @InjectRepository(StaffSchedule)
-    private readonly staffScheduleRepo: Repository<StaffSchedule>,
     @InjectRepository(ScheduleRequest)
     private readonly scheduleRequestRepo: Repository<ScheduleRequest>,
     @InjectRepository(DiscountCode)
@@ -629,7 +626,6 @@ export class BookingService {
     // 7-8. Create the (possibly new) customer, the booking, and its booking-service
     // row all atomically — a half-completed walk-in would either strand a new
     // customer account with no booking, or check a customer in with no service record.
-
     return await this.dataSource.transaction(async (manager) => {
       let resolvedCustomerId = customerId;
       if (!resolvedCustomerId && newCustomerData) {
