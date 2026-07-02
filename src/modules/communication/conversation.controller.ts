@@ -27,6 +27,28 @@ export class ConversationController {
     return plainToInstance(ConversationResponseDto, conversation);
   }
 
+  @Get('public/:id')
+  @ApiOkResponse({ description: 'Public conversation detail for guest chat', type: ConversationResponseDto })
+  async findPublicOne(@Param('id') id: string): Promise<ConversationResponseDto> {
+    const result = await this.conversationService.findOne(id);
+    return plainToInstance(ConversationResponseDto, result);
+  }
+
+  @Get('public/:id/messages')
+  @ApiOkResponse({ description: 'Public messages in a guest conversation ordered oldest-first', type: [MessageResponseDto] })
+  async getPublicMessages(@Param('id') id: string): Promise<MessageResponseDto[]> {
+    const messages = await this.conversationService.getMessages(id);
+    return plainToInstance(MessageResponseDto, messages);
+  }
+
+  @Post('public/:id/messages')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ description: 'Public guest message sent', type: MessageResponseDto })
+  async sendPublicMessage(@Param('id') id: string, @Body() dto: SendMessageDto): Promise<MessageResponseDto> {
+    const message = await this.conversationService.sendGuestMessage(id, dto.message);
+    return plainToInstance(MessageResponseDto, message);
+  }
+
   @Get(':id')
   @ApiOkResponse({ description: 'Conversation detail', type: ConversationResponseDto })
   async findOne(@Param('id') id: string): Promise<ConversationResponseDto> {
