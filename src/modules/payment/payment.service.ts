@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { PAYMENT_EVENTS } from 'src/common/constants/events';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
@@ -100,6 +100,8 @@ export class PaymentService {
         });
       }
 
+      await this.linkDepositPaymentsToInvoice(booking.id, existing.id);
+
       const items = await this.invoiceItemRepo.find({ where: { invoiceId: existing.id } });
       return Object.assign(existing, { items });
     }
@@ -132,6 +134,16 @@ export class PaymentService {
       // Re-check for existing invoice under lock — handles the TOCTOU window
       const existingInTx = await manager.findOne(Invoice, { where: { bookingId: lockedBooking.id } });
       if (existingInTx) {
+        await manager.update(
+          Payment,
+          {
+            bookingId: lockedBooking.id,
+            invoiceId: IsNull(),
+            paymentType: PaymentType.Deposit,
+            status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+          },
+          { invoiceId: existingInTx.id },
+        );
         const items = await manager.find(InvoiceItem, { where: { invoiceId: existingInTx.id } });
         return Object.assign(existingInTx, { items });
       }
@@ -152,6 +164,17 @@ export class PaymentService {
           issuedAt: now,
           createdBy: staffId,
         }),
+      );
+
+      await manager.update(
+        Payment,
+        {
+          bookingId: booking.id,
+          invoiceId: IsNull(),
+          paymentType: PaymentType.Deposit,
+          status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+        },
+        { invoiceId: invoice.id },
       );
 
       const items = await Promise.all(
@@ -177,6 +200,18 @@ export class PaymentService {
 
       return Object.assign(invoice, { items });
     });
+  }
+
+  private async linkDepositPaymentsToInvoice(bookingId: string, invoiceId: string): Promise<void> {
+    await this.paymentRepo.update(
+      {
+        bookingId,
+        invoiceId: IsNull(),
+        paymentType: PaymentType.Deposit,
+        status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+      },
+      { invoiceId },
+    );
   }
 
   private async consumeInventoryForCompletedBooking(
