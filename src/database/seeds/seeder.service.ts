@@ -75,10 +75,10 @@ const SERVICE_PRESENTATION_OVERRIDES: Record<string, Partial<Service>> = {
     defaultPrice: 1050000,
   },
   'SVC-NAIL-001': {
-    name: 'Tẩy Tế Bào Chết Muối Biển & Cà Phê',
-    slug: 'tay-te-bao-chet-muoi-bien-ca-phe',
+    name: 'Tẩy Tế Bào Chết Muối Biển',
+    slug: 'tay-te-bao-chet-muoi-bien',
     category: 'Body',
-    description: 'Làm mịn da và kích thích tái tạo tế bào mới với muối biển hạt mịn và cà phê Đắk Lắk.',
+    description: 'Làm mịn da và kích thích tái tạo tế bào mới với muối biển hạt mịn.',
     imageUrl: WELLNESS_IMAGE,
     defaultDurationMinutes: 45,
     defaultPrice: 850000,

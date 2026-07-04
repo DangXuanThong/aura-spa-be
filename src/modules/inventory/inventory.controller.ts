@@ -33,6 +33,7 @@ export class InventoryController {
   // ── UC30: List stock levels for a branch ─────────────────────────────────────
 
   @Get('branch/:branchId')
+  @Roles(UserRole.Manager, UserRole.Staff)
   @ApiOkResponse({ description: 'Current stock levels for the branch', type: [BranchInventoryResponseDto] })
   async listByBranch(@Param('branchId') branchId: string, @Request() req: any): Promise<BranchInventoryResponseDto[]> {
     const rows = await this.inventoryService.listByBranch(branchId, req.user.id);
