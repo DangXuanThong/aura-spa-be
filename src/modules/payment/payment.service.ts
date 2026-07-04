@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
-import { PAYMENT_EVENTS } from 'src/common/constants/events';
+import { PAYMENT_EVENTS, INVENTORY_EVENTS } from 'src/common/constants/events';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { Payment } from './entities/payment.entity';
@@ -23,6 +23,11 @@ import { PaymentType } from './enums/payment-type.enum';
 import { GenerateInvoiceDto } from './dto/generate-invoice.dto';
 import { ProcessPaymentDto } from './dto/process-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
+import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
+import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
+import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
+import { Service } from 'src/modules/service/entities/service.entity';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
@@ -172,11 +177,102 @@ export class PaymentService {
 
       if (booking.status !== BookingStatus.Completed) {
         await this.consumeInventoryForCompletedBooking(manager, booking, bookingServices, staffId);
+        await this.updateTreatmentProgressOnCheckout(manager, booking, bookingServices, invoice.id, staffId, now);
         await manager.update(Booking, booking.id, { status: BookingStatus.Completed, completedAt: now });
       }
 
       return Object.assign(invoice, { items });
     });
+  }
+
+  private async updateTreatmentProgressOnCheckout(
+    manager: EntityManager,
+    booking: Booking,
+    bookingServices: BookingServiceEntity[],
+    invoiceId: string,
+    staffId: string,
+    now: Date,
+  ): Promise<void> {
+    for (const bookingService of bookingServices) {
+      // Find active TreatmentCourse for this customer and service
+      const activeCourse = await manager.findOne(TreatmentCourse, {
+        where: {
+          customerId: booking.customerId,
+          serviceId: bookingService.serviceId,
+          status: TreatmentCourseStatus.Active,
+        },
+        order: { createdAt: 'ASC' },
+      });
+
+      if (activeCourse) {
+        // Find next planned/booked session
+        let session = await manager.findOne(TreatmentSession, {
+          where: { treatmentCourseId: activeCourse.id, bookingId: booking.id },
+        });
+        if (!session) {
+          session = await manager.findOne(TreatmentSession, {
+            where: {
+              treatmentCourseId: activeCourse.id,
+              status: In([TreatmentSessionStatus.Planned, TreatmentSessionStatus.Booked]),
+            },
+            order: { sessionNumber: 'ASC' },
+          });
+        }
+
+        if (session) {
+          session.status = TreatmentSessionStatus.Completed;
+          session.bookingId = booking.id;
+          session.staffId = booking.technicianId ?? staffId;
+          session.completedAt = now;
+          await manager.save(TreatmentSession, session);
+
+          const used = parseFloat(activeCourse.usedSessions as any) + 1;
+          const remaining = Math.max(0, parseFloat(activeCourse.totalSessions as any) - used);
+          activeCourse.usedSessions = used;
+          activeCourse.remainingSessions = remaining;
+          if (remaining <= 0) {
+            activeCourse.status = TreatmentCourseStatus.Completed;
+          }
+          await manager.save(TreatmentCourse, activeCourse);
+        }
+      } else {
+        // No active course. Let's see if this service is a multi-session service.
+        const service = await manager.findOne(Service, {
+          where: { id: bookingService.serviceId },
+        });
+        if (service && service.isMultiSession) {
+          const totalSessions = service.totalSessions ?? 5;
+          const course = await manager.save(
+            manager.create(TreatmentCourse, {
+              customerId: booking.customerId,
+              serviceId: service.id,
+              branchId: booking.branchId,
+              purchaseInvoiceId: invoiceId,
+              totalSessions,
+              usedSessions: 1,
+              remainingSessions: totalSessions - 1,
+              status: totalSessions > 1 ? TreatmentCourseStatus.Active : TreatmentCourseStatus.Completed,
+              startedAt: now,
+              expiresAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000), // 1 year validity
+            }),
+          );
+
+          for (let i = 1; i <= totalSessions; i++) {
+            await manager.save(
+              manager.create(TreatmentSession, {
+                treatmentCourseId: course.id,
+                bookingId: i === 1 ? booking.id : null,
+                serviceId: service.id,
+                sessionNumber: i,
+                status: i === 1 ? TreatmentSessionStatus.Completed : TreatmentSessionStatus.Planned,
+                staffId: i === 1 ? (booking.technicianId ?? staffId) : null,
+                completedAt: i === 1 ? now : null,
+              }),
+            );
+          }
+        }
+      }
+    }
   }
 
   private async consumeInventoryForCompletedBooking(
@@ -212,6 +308,7 @@ export class PaymentService {
 
         const stockRow = await manager.findOne(BranchInventory, {
           where: { branchId: booking.branchId, inventoryItemId: requirement.inventoryItemId },
+          relations: ['inventoryItem'],
           lock: { mode: 'pessimistic_write' },
         });
         if (!stockRow) {
@@ -228,6 +325,18 @@ export class PaymentService {
           currentQuantity: after,
           lastTransactionAt: new Date(),
         });
+
+        const minLevel = stockRow.inventoryItem?.minStockLevel !== null && stockRow.inventoryItem?.minStockLevel !== undefined
+          ? parseFloat(stockRow.inventoryItem.minStockLevel as unknown as string)
+          : null;
+        if (minLevel !== null && after < minLevel) {
+          this.eventEmitter.emit(INVENTORY_EVENTS.LOW_STOCK, {
+            itemId: requirement.inventoryItemId,
+            itemName: stockRow.inventoryItem?.name ?? 'Material',
+            branchId: booking.branchId,
+            currentQty: after,
+          });
+        }
 
         await manager.save(
           manager.create(InventoryTransaction, {

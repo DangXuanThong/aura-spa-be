@@ -43,6 +43,10 @@ import { InvoiceStatus } from 'src/modules/payment/enums/invoice-status.enum';
 import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
 import { BOOKING_EVENTS } from 'src/common/constants/events';
 import { SepayConfig } from 'src/modules/payment/infrastructure/sepay/sepay.config';
+import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
+import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
+import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
+import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
@@ -180,6 +184,31 @@ export class BookingService {
         }),
       );
 
+      // Link next planned treatment session if active course exists
+      const activeCourse = await manager.findOne(TreatmentCourse, {
+        where: {
+          customerId,
+          serviceId: dto.serviceId,
+          status: TreatmentCourseStatus.Active,
+        },
+        order: { createdAt: 'ASC' },
+      });
+      if (activeCourse) {
+        const nextSession = await manager.findOne(TreatmentSession, {
+          where: {
+            treatmentCourseId: activeCourse.id,
+            status: TreatmentSessionStatus.Planned,
+          },
+          order: { sessionNumber: 'ASC' },
+        });
+        if (nextSession) {
+          nextSession.bookingId = created.id;
+          nextSession.status = TreatmentSessionStatus.Booked;
+          nextSession.staffId = technicianId;
+          await manager.save(TreatmentSession, nextSession);
+        }
+      }
+
       return created;
     });
     this.eventEmitter.emit(BOOKING_EVENTS.CREATED, {
@@ -284,6 +313,8 @@ export class BookingService {
           finalAmount: bookingSvc.finalAmount,
         }),
       );
+
+      await manager.update(TreatmentSession, { bookingId: id }, { bookingId: newBooking.id, staffId: newTechnicianId });
 
       // The rescheduled booking counts as a fresh usage of the discount code
       if (booking.discountCodeId) {
@@ -415,6 +446,8 @@ export class BookingService {
         }),
       );
 
+      await manager.update(TreatmentSession, { bookingId: id }, { bookingId: newBooking.id, staffId: dto.technicianId ?? null });
+
       return newBooking;
     });
   }
@@ -444,6 +477,12 @@ export class BookingService {
         cancelReason: dto.cancelReason ?? null,
         cancelledAt: new Date(),
       });
+
+      await manager.update(
+        TreatmentSession,
+        { bookingId: id },
+        { status: TreatmentSessionStatus.Planned, bookingId: null, staffId: null }
+      );
 
       const invoice = await manager.findOne(Invoice, { where: { bookingId: id } });
       if (invoice) {
@@ -671,6 +710,31 @@ export class BookingService {
           finalAmount: unitPrice,
         }),
       );
+
+      // Link next planned treatment session if active course exists
+      const activeCourse = await manager.findOne(TreatmentCourse, {
+        where: {
+          customerId: customerId!,
+          serviceId: dto.serviceId,
+          status: TreatmentCourseStatus.Active,
+        },
+        order: { createdAt: 'ASC' },
+      });
+      if (activeCourse) {
+        const nextSession = await manager.findOne(TreatmentSession, {
+          where: {
+            treatmentCourseId: activeCourse.id,
+            status: TreatmentSessionStatus.Planned,
+          },
+          order: { sessionNumber: 'ASC' },
+        });
+        if (nextSession) {
+          nextSession.bookingId = booking.id;
+          nextSession.status = TreatmentSessionStatus.Booked;
+          nextSession.staffId = dto.technicianId ?? null;
+          await manager.save(TreatmentSession, nextSession);
+        }
+      }
 
       return booking;
     });

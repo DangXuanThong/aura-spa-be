@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { RevenueTrendPointDto } from './revenue-dashboard.dto';
 
 export class RevenueSummaryDto {
   @ApiProperty({ description: 'Sum of paidAmount for all completed bookings in the period', example: 12500.0 })
@@ -52,4 +53,8 @@ export class BranchPerformanceReportDto {
   @ApiProperty({ type: [StaffPerformanceDto] })
   @Type(() => StaffPerformanceDto)
   staffPerformance!: StaffPerformanceDto[];
+
+  @ApiPropertyOptional({ type: [RevenueTrendPointDto] })
+  @Type(() => RevenueTrendPointDto)
+  trend?: RevenueTrendPointDto[];
 }

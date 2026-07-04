@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -83,5 +83,49 @@ export class InventoryController {
   async stockCheck(@Param('branchId') branchId: string, @Body() dto: StockCheckDto, @Request() req: any): Promise<InventoryTransactionResponseDto> {
     const tx = await this.inventoryService.stockCheck(branchId, dto, req.user.id);
     return plainToInstance(InventoryTransactionResponseDto, tx);
+  }
+
+  // ── UC30: Get service inventory requirements (recipes) ────────────────────────
+  @Get('requirements')
+  @ApiOkResponse({ description: 'Service inventory requirements list' })
+  async getRequirements(): Promise<any[]> {
+    return this.inventoryService.getRequirements();
+  }
+
+  // ── Owner & Manager: List all active inventory items ───────────────────────────
+  @Get('items')
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiOkResponse({ description: 'All active inventory items list' })
+  async listAllItems(): Promise<any[]> {
+    return this.inventoryService.listAllItems();
+  }
+
+  // ── Owner: Create a service requirement ────────────────────────────────────────
+  @Post('requirements')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Created requirement' })
+  async createRequirement(
+    @Body() dto: { serviceId: string; inventoryItemId: string; quantityPerService: number },
+  ): Promise<any> {
+    return this.inventoryService.createRequirement(dto);
+  }
+
+  // ── Owner: Update a service requirement ────────────────────────────────────────
+  @Patch('requirements/:id')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Updated requirement' })
+  async updateRequirement(
+    @Param('id') id: string,
+    @Body() dto: { quantityPerService: number; isActive?: boolean },
+  ): Promise<any> {
+    return this.inventoryService.updateRequirement(id, dto);
+  }
+
+  // ── Owner: Delete a service requirement ────────────────────────────────────────
+  @Delete('requirements/:id')
+  @Roles(UserRole.Owner)
+  @ApiOkResponse({ description: 'Deleted requirement' })
+  async deleteRequirement(@Param('id') id: string): Promise<void> {
+    return this.inventoryService.deleteRequirement(id);
   }
 }

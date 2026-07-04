@@ -42,12 +42,13 @@ export class ReportService {
       await this.assertManagerAtBranch(managerId, branchId);
     }
 
-    const [revenue, staffPerformance] = await Promise.all([
+    const [revenue, staffPerformance, trend] = await Promise.all([
       this.queryRevenueSummary(branchId, from, to),
       this.queryStaffPerformance(branchId, from, to),
+      this.queryBranchTrend(branchId, from, to, 'month' as any),
     ]);
 
-    return { branchId, periodFrom: from, periodTo: to, revenue, staffPerformance };
+    return { branchId, periodFrom: from, periodTo: to, revenue, staffPerformance, trend };
   }
 
   private async queryRevenueSummary(branchId: string, from: Date, to: Date): Promise<RevenueSummaryDto> {
@@ -104,6 +105,26 @@ export class ReportService {
       completedServices: parseInt(r.completedServices, 10),
       averageRating: r.averageRating != null ? Math.round(parseFloat(r.averageRating) * 10) / 10 : null,
       reviewCount: parseInt(r.reviewCount, 10),
+    }));
+  }
+
+  private async queryBranchTrend(branchId: string, from: Date, to: Date, granularity: TrendGranularity): Promise<RevenueTrendPointDto[]> {
+    const rows = await this.bookingRepo
+      .createQueryBuilder('b')
+      .select(`DATE_TRUNC('${granularity}', b.startTime)`, 'period')
+      .addSelect(`COALESCE(SUM(CASE WHEN b.status = '${BookingStatus.Completed}' THEN b.paidAmount ELSE 0 END), 0)`, 'revenue')
+      .addSelect(`COUNT(CASE WHEN b.status = '${BookingStatus.Completed}' THEN 1 END)`, 'completedBookings')
+      .where('b.branchId = :branchId', { branchId })
+      .andWhere('b.startTime >= :from', { from })
+      .andWhere('b.startTime <= :to', { to })
+      .groupBy(`DATE_TRUNC('${granularity}', b.startTime)`)
+      .orderBy(`DATE_TRUNC('${granularity}', b.startTime)`, 'ASC')
+      .getRawMany<Record<string, string>>();
+
+    return rows.map((r) => ({
+      period: new Date(r.period).toISOString(),
+      revenue: parseFloat(r.revenue ?? '0'),
+      completedBookings: parseInt(r.completedBookings ?? '0', 10),
     }));
   }
 
