@@ -27,6 +27,7 @@ import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module'
 import { StrategyModule } from 'src/modules/strategy/strategy.module';
 import { NotificationModule } from 'src/modules/notification/notification.module';
 import { CaslModule } from 'src/common/casl/casl.module';
+import { HealthCheckController } from './health-check.controller';
 
 @Injectable()
 class DatabaseHealthLogger implements OnModuleInit {
@@ -85,6 +86,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     CaslModule,
     SeederModule,
   ],
+  controllers: [HealthCheckController],
   providers: [DatabaseHealthLogger],
 })
 export class AppModule {}

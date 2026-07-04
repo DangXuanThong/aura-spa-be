@@ -19,3 +19,7 @@ export const PAYMENT_EVENTS = {
 export const INVENTORY_EVENTS = {
   LOW_STOCK: 'inventory.low_stock',
 } as const;
+
+export const COMPLAINT_EVENTS = {
+  CREATED: 'complaint.created',
+} as const;

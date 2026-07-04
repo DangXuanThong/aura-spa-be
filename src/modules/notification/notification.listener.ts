@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { BOOKING_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS } from 'src/common/constants/events';
+import { BOOKING_EVENTS, COMPLAINT_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS } from 'src/common/constants/events';
 import { NotificationService } from './notification.service';
 import { NotificationGateway } from './notification.gateway';
 import { ActivityLogService } from 'src/modules/activity-log/activity-log.service';
@@ -236,6 +236,33 @@ export class NotificationListener {
       entityType: 'inventory_item',
       entityId: payload.itemId,
       metadata: { itemName: payload.itemName, currentQty: payload.currentQty },
+    });
+  }
+
+  @OnEvent(COMPLAINT_EVENTS.CREATED)
+  async handleComplaintCreated(payload: { complaintId: string; customerId: string; customerName: string; branchId: string; title: string }) {
+    const managerIds = await this.getActiveBranchUserIds(payload.branchId, [StaffPosition.Manager]);
+    await Promise.all(
+      managerIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'complaint_created',
+          message: `Nhận 1 khiếu nại mới từ ${payload.customerName}: ${payload.title}`,
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'complaint',
+          relatedEntityId: payload.complaintId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.branchId,
+      action: COMPLAINT_EVENTS.CREATED,
+      entityType: 'complaint',
+      entityId: payload.complaintId,
+      metadata: { customerName: payload.customerName, title: payload.title },
     });
   }
 }
