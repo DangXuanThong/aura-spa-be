@@ -10,9 +10,14 @@ import { ConversationService } from './conversation.service';
 import { ComplaintService } from './complaint.service';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { AuthModule } from 'src/modules/auth/auth.module';
+import { NotificationModule } from 'src/modules/notification/notification.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Conversation, Message, Complaint, BranchStaff]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([Conversation, Message, Complaint, BranchStaff]),
+    AuthModule,
+    NotificationModule,
+  ],
   controllers: [ConversationController, ComplaintController],
   providers: [ConversationService, ComplaintService, RolesGuard],
   exports: [ConversationService],

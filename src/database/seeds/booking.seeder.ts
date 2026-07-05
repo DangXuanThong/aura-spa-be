@@ -67,6 +67,7 @@ export class BookingSeeder {
       const service = serviceMap.get(def.serviceCode);
       if (!customer || !branch || !technician || !service) continue;
 
+      const price = parseFloat(service.defaultPrice as unknown as string);
       const booking = await this.bookingRepo.save(
         this.bookingRepo.create({
           customerId: customer.id,
@@ -76,17 +77,17 @@ export class BookingSeeder {
           endTime: def.endTime,
           status: BookingStatus.Completed,
           source: BookingSource.Online,
-          subtotalAmount: def.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
-          paidAmount: def.price,
+          paidAmount: price,
           remainingAmount: 0,
           createdBy: customer.id,
           checkedInAt: def.startTime,
           completedAt: def.endTime,
         }),
       );
-      await this.saveBookingService(booking.id, service.id, def.durationMinutes, def.price);
+      await this.saveBookingService(booking.id, service.id, def.durationMinutes, price);
       seeded++;
     }
 
@@ -98,6 +99,7 @@ export class BookingSeeder {
       const service = serviceMap.get(def.serviceCode);
       if (!customer || !branch || !technician || !service) continue;
 
+      const price = parseFloat(service.defaultPrice as unknown as string);
       const endTime = new Date(def.startTime.getTime() + def.durationMinutes * 60 * 1000);
       const booking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -108,18 +110,17 @@ export class BookingSeeder {
           endTime,
           status: BookingStatus.Confirmed,
           source: BookingSource.Online,
-          subtotalAmount: def.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: def.price,
+          remainingAmount: price,
           createdBy: customer.id,
         }),
       );
-      await this.saveBookingService(booking.id, service.id, def.durationMinutes, def.price);
+      await this.saveBookingService(booking.id, service.id, def.durationMinutes, price);
       seeded++;
     }
-
     // ── Rescheduled pair (UC11) ────────────────────────────────────────────
     const rOrig = RESCHEDULED_PAIR.original;
     const rNew = RESCHEDULED_PAIR.rescheduled;
@@ -128,6 +129,7 @@ export class BookingSeeder {
     const rTechnician = userMap.get(rOrig.technicianEmail);
     const rService = serviceMap.get(rOrig.serviceCode);
     if (rCustomer && rBranch && rTechnician && rService) {
+      const price = parseFloat(rService.defaultPrice as unknown as string);
       const origEndTime = new Date(rOrig.startTime.getTime() + rOrig.durationMinutes * 60 * 1000);
       const origBooking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -138,15 +140,15 @@ export class BookingSeeder {
           endTime: origEndTime,
           status: rOrig.status,
           source: BookingSource.Online,
-          subtotalAmount: rOrig.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: rOrig.price,
+          remainingAmount: price,
           createdBy: rCustomer.id,
         }),
       );
-      await this.saveBookingService(origBooking.id, rService.id, rOrig.durationMinutes, rOrig.price);
+      await this.saveBookingService(origBooking.id, rService.id, rOrig.durationMinutes, price);
       seeded++;
 
       const newEndTime = new Date(rNew.startTime.getTime() + rNew.durationMinutes * 60 * 1000);
@@ -159,16 +161,16 @@ export class BookingSeeder {
           endTime: newEndTime,
           status: rNew.status,
           source: BookingSource.Online,
-          subtotalAmount: rNew.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: rNew.price,
+          remainingAmount: price,
           rescheduledFromBookingId: origBooking.id,
           createdBy: rCustomer.id,
         }),
       );
-      await this.saveBookingService(newBooking.id, rService.id, rNew.durationMinutes, rNew.price);
+      await this.saveBookingService(newBooking.id, rService.id, rNew.durationMinutes, price);
       seeded++;
     }
 
@@ -178,6 +180,7 @@ export class BookingSeeder {
     const cBranch = branchMap.get(cDef.branchCode);
     const cService = serviceMap.get(cDef.serviceCode);
     if (cCustomer && cBranch && cService) {
+      const price = parseFloat(cService.defaultPrice as unknown as string);
       const cEndTime = new Date(cDef.startTime.getTime() + cDef.durationMinutes * 60 * 1000);
       const cBooking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -188,17 +191,17 @@ export class BookingSeeder {
           endTime: cEndTime,
           status: cDef.status,
           source: BookingSource.Online,
-          subtotalAmount: cDef.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: cDef.price,
+          remainingAmount: price,
           cancelReason: cDef.cancelReason,
           cancelledAt: cDef.cancelledAt,
           createdBy: cCustomer.id,
         }),
       );
-      await this.saveBookingService(cBooking.id, cService.id, cDef.durationMinutes, cDef.price);
+      await this.saveBookingService(cBooking.id, cService.id, cDef.durationMinutes, price);
       seeded++;
     }
 
@@ -212,6 +215,7 @@ export class BookingSeeder {
     const tNewTech = userMap.get(tNew.technicianEmail);
     const tService = serviceMap.get(tOrig.serviceCode);
     if (tCustomer && tOrigBranch && tNewBranch && tOrigTech && tNewTech && tService) {
+      const price = parseFloat(tService.defaultPrice as unknown as string);
       const tOrigEnd = new Date(tOrig.startTime.getTime() + tOrig.durationMinutes * 60 * 1000);
       const tOrigBooking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -222,15 +226,15 @@ export class BookingSeeder {
           endTime: tOrigEnd,
           status: tOrig.status,
           source: BookingSource.Online,
-          subtotalAmount: tOrig.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: tOrig.price,
+          remainingAmount: price,
           createdBy: tCustomer.id,
         }),
       );
-      await this.saveBookingService(tOrigBooking.id, tService.id, tOrig.durationMinutes, tOrig.price);
+      await this.saveBookingService(tOrigBooking.id, tService.id, tOrig.durationMinutes, price);
       seeded++;
 
       const tNewEnd = new Date(tNew.startTime.getTime() + tNew.durationMinutes * 60 * 1000);
@@ -243,16 +247,16 @@ export class BookingSeeder {
           endTime: tNewEnd,
           status: tNew.status,
           source: BookingSource.Online,
-          subtotalAmount: tNew.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: tNew.price,
+          remainingAmount: price,
           transferredFromBranchId: tOrigBranch.id,
           createdBy: tCustomer.id,
         }),
       );
-      await this.saveBookingService(tNewBooking.id, tService.id, tNew.durationMinutes, tNew.price);
+      await this.saveBookingService(tNewBooking.id, tService.id, tNew.durationMinutes, price);
       seeded++;
     }
 
@@ -263,6 +267,7 @@ export class BookingSeeder {
     const ciTech = userMap.get(ciDef.technicianEmail);
     const ciService = serviceMap.get(ciDef.serviceCode);
     if (ciCustomer && ciBranch && ciTech && ciService) {
+      const price = parseFloat(ciService.defaultPrice as unknown as string);
       const ciEnd = new Date(ciDef.startTime.getTime() + ciDef.durationMinutes * 60 * 1000);
       const ciBooking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -273,16 +278,16 @@ export class BookingSeeder {
           endTime: ciEnd,
           status: ciDef.status,
           source: ciDef.source,
-          subtotalAmount: ciDef.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
           paidAmount: 0,
-          remainingAmount: ciDef.price,
+          remainingAmount: price,
           createdBy: ciCustomer.id,
           checkedInAt: ciDef.checkedInAt,
         }),
       );
-      await this.saveBookingService(ciBooking.id, ciService.id, ciDef.durationMinutes, ciDef.price);
+      await this.saveBookingService(ciBooking.id, ciService.id, ciDef.durationMinutes, price);
       seeded++;
     }
 
@@ -293,6 +298,7 @@ export class BookingSeeder {
     const wiTech = userMap.get(wiDef.technicianEmail);
     const wiService = serviceMap.get(wiDef.serviceCode);
     if (wiCustomer && wiBranch && wiTech && wiService) {
+      const price = parseFloat(wiService.defaultPrice as unknown as string);
       const wiEnd = new Date(wiDef.startTime.getTime() + wiDef.durationMinutes * 60 * 1000);
       const wiBooking = await this.bookingRepo.save(
         this.bookingRepo.create({
@@ -303,17 +309,17 @@ export class BookingSeeder {
           endTime: wiEnd,
           status: wiDef.status,
           source: wiDef.source,
-          subtotalAmount: wiDef.price,
+          subtotalAmount: price,
           discountAmount: 0,
           depositRequiredAmount: 0,
-          paidAmount: wiDef.price,
+          paidAmount: price,
           remainingAmount: 0,
           createdBy: wiTech.id,
           checkedInAt: wiDef.checkedInAt,
           completedAt: wiDef.completedAt,
         }),
       );
-      await this.saveBookingService(wiBooking.id, wiService.id, wiDef.durationMinutes, wiDef.price);
+      await this.saveBookingService(wiBooking.id, wiService.id, wiDef.durationMinutes, price);
       seeded++;
     }
 

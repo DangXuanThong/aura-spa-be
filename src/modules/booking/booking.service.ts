@@ -903,6 +903,8 @@ export class BookingService {
     requesterRole: string,
     date?: string,
     limit = 100,
+    startDate?: string,
+    endDate?: string,
   ): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
     if (requesterRole !== UserRole.Owner) {
       const assignment = await this.branchStaffRepo.findOne({
@@ -919,7 +921,12 @@ export class BookingService {
       .orderBy('b.startTime', 'DESC')
       .take(limit);
 
-    if (date) {
+    if (startDate && endDate) {
+      const start = new Date(`${startDate}T00:00:00+07:00`);
+      const end = new Date(`${endDate}T23:59:59.999+07:00`);
+      qb.andWhere('b.startTime >= :start', { start })
+        .andWhere('b.startTime <= :end', { end });
+    } else if (date) {
       const dayStart = new Date(`${date}T00:00:00+07:00`);
       const dayEnd = new Date(`${date}T23:59:59.999+07:00`);
       qb.andWhere('b.startTime >= :dayStart', { dayStart })

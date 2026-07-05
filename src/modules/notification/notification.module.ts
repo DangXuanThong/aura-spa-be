@@ -27,6 +27,6 @@ import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module'
   ],
   controllers: [NotificationController],
   providers: [NotificationService, NotificationListener, NotificationGateway, RolesGuard],
-  exports: [NotificationService],
+  exports: [NotificationService, NotificationGateway],
 })
 export class NotificationModule {}

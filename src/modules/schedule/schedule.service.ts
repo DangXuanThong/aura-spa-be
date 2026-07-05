@@ -15,6 +15,10 @@ import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
+import { AssignShiftDto } from './dto/assign-shift.dto';
+import { NotificationService } from 'src/modules/notification/notification.service';
+import { NotificationGateway } from 'src/modules/notification/notification.gateway';
+import { NotificationChannel } from 'src/modules/notification/entities/notification.entity';
 
 const REQUEST_TYPE_TO_SCHEDULE_TYPE: Record<ScheduleRequestType, ScheduleType> = {
   [ScheduleRequestType.WorkShift]: ScheduleType.Working,
@@ -33,6 +37,8 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    private readonly notificationService: NotificationService,
+    private readonly gateway: NotificationGateway,
   ) {}
 
   // UC21 — Submit schedule request
@@ -218,7 +224,27 @@ export class ScheduleService {
       }),
     );
 
+    const staffNotif = await this.notificationService.create({
+      recipientUserId: request.staffId,
+      notificationType: 'schedule_approved',
+      message: `Yêu cầu ca làm ngày ${new Date(request.requestedStart).toLocaleDateString('vi-VN')} của bạn đã được duyệt.`,
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'schedule_request',
+      relatedEntityId: request.id,
+    });
+    this.gateway.sendToUser(request.staffId, staffNotif);
+
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+  }
+
+  async batchApprove(ids: string[], managerId: string): Promise<void> {
+    for (const id of ids) {
+      try {
+        await this.approve(id, managerId);
+      } catch (e) {
+        // Ignore errors for individual requests so others can continue
+      }
+    }
   }
 
   // UC26 — Reject a schedule request
@@ -233,6 +259,16 @@ export class ScheduleService {
 
     const now = new Date();
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
+
+    const staffNotif = await this.notificationService.create({
+      recipientUserId: request.staffId,
+      notificationType: 'schedule_rejected',
+      message: `Yêu cầu ca làm ngày ${new Date(request.requestedStart).toLocaleDateString('vi-VN')} của bạn đã bị từ chối.`,
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'schedule_request',
+      relatedEntityId: request.id,
+    });
+    this.gateway.sendToUser(request.staffId, staffNotif);
 
     return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
   }
@@ -323,5 +359,60 @@ export class ScheduleService {
       where: { userId: managerId, branchId, status: StaffStatus.Active },
     });
     if (!assignment) throw new ForbiddenException('You are not an active staff member at this branch');
+  }
+
+  async assignShiftDirectly(dto: AssignShiftDto, managerId: string): Promise<ScheduleRequest> {
+    await this.assertManagerAtBranch(managerId, dto.branchId);
+
+    const start = new Date(`${dto.date}T${dto.startTime}:00+07:00`);
+    const end = new Date(`${dto.date}T${dto.endTime}:00+07:00`);
+
+    if (end <= start) {
+      throw new BadRequestException('Giờ kết thúc phải sau giờ bắt đầu');
+    }
+
+    const type = (dto.requestType as ScheduleRequestType) || ScheduleRequestType.WorkShift;
+
+    // Create the approved request
+    const request = await this.scheduleRequestRepo.save(
+      this.scheduleRequestRepo.create({
+        staffId: dto.staffId,
+        branchId: dto.branchId,
+        requestType: type,
+        requestedStart: start,
+        requestedEnd: end,
+        status: ApprovalStatus.Approved,
+        reason: 'Quản lý phân công trực tiếp',
+        reviewedBy: managerId,
+        reviewedAt: new Date(),
+      }),
+    );
+
+    // Save staff schedule
+    await this.staffScheduleRepo.save(
+      this.staffScheduleRepo.create({
+        staffId: dto.staffId,
+        branchId: dto.branchId,
+        startTime: start,
+        endTime: end,
+        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[type],
+        status: ScheduleStatus.Active,
+        sourceRequestId: request.id,
+        createdBy: managerId,
+      }),
+    );
+
+    return request;
+  }
+
+  async removeShift(id: string, managerId: string): Promise<void> {
+    const request = await this.scheduleRequestRepo.findOne({ where: { id } });
+    if (!request) throw new NotFoundException('Không tìm thấy ca làm việc');
+    await this.assertManagerAtBranch(managerId, request.branchId);
+
+    // Delete corresponding staff schedule
+    await this.staffScheduleRepo.delete({ sourceRequestId: id });
+    // Delete the request
+    await this.scheduleRequestRepo.delete(id);
   }
 }
