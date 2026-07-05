@@ -19,12 +19,8 @@ commit real `.env` values.
 | `POSTGRES_PORT` | PostgreSQL port | `5432` |
 | `POSTGRES_USER` | PostgreSQL user | `postgres` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
-| `POSTGRES_NAME` | Database name read by current code | `aura_spa` |
-| `POSTGRES_SSL` | Enable database SSL when `true` | `false` |
-
-Current note: `.env.example` uses `POSTGRES_DB`, but `database.config.ts`
-currently reads `POSTGRES_NAME`. Align local env files with the code or update
-the config before relying on `POSTGRES_DB`.
+| `POSTGRES_DB` | PostgreSQL database name | `aura_spa` |
+| `POSTGRES_SSL` | Enable database SSL when `true`; Neon hosts enable SSL automatically | `false` |
 
 ## Mail Variables
 
@@ -105,7 +101,12 @@ npm run docker:up
 npm run docker:down
 ```
 
-The compose file sets `POSTGRES_HOST=database` for the app container and maps:
+The compose file reads database settings from `.env`. Use
+`POSTGRES_HOST=database` when the app container should connect to the compose
+PostgreSQL service, or set a remote host such as Neon when the app should use
+that database instead.
+
+Port mappings:
 
 ```text
 127.0.0.1:3100 -> app
