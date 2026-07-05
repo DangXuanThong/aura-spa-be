@@ -48,6 +48,9 @@ export class StaffResponseDto {
   @Type(() => StaffUserResponseDto)
   user!: StaffUserResponseDto;
 
+  @ApiPropertyOptional({ example: 4.8 })
+  rating?: number | null;
+
   @ApiProperty({ example: '2026-06-18T10:00:00.000Z' })
   createdAt!: Date;
 

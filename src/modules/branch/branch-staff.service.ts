@@ -32,15 +32,38 @@ export class BranchStaffService {
   ) {}
 
   // UC25 — List staff at branch
-  async list(branchId: string, managerId: string, role?: string): Promise<BranchStaff[]> {
+  async list(branchId: string, managerId: string, role?: string): Promise<any[]> {
     if (role !== UserRole.Owner) {
       await this.assertManagerAtBranch(managerId, branchId);
     }
 
-    return this.branchStaffRepo.find({
+    const assignments = await this.branchStaffRepo.find({
       where: { branchId },
       relations: ['user'],
       order: { createdAt: 'ASC' },
+    });
+
+    const staffIds = assignments.map(a => a.userId);
+    const ratingsMap = new Map<string, number>();
+
+    if (staffIds.length > 0) {
+      const ratingsRaw = await this.branchStaffRepo.query(
+        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
+         FROM reviews
+         WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
+         GROUP BY technician_id`,
+        staffIds,
+      );
+      for (const item of ratingsRaw) {
+        ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
+      }
+    }
+
+    return assignments.map(a => {
+      const avgRating = ratingsMap.get(a.userId);
+      return Object.assign(a, {
+        rating: avgRating !== undefined ? Math.round(avgRating * 10) / 10 : null
+      });
     });
   }
 
