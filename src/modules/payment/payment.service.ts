@@ -1,8 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { PAYMENT_EVENTS, INVENTORY_EVENTS } from 'src/common/constants/events';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
@@ -28,6 +29,14 @@ import { TreatmentSession } from 'src/modules/treatment/entities/treatment-sessi
 import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 import { Service } from 'src/modules/service/entities/service.entity';
+import { InvoicePaymentQrResponseDto } from './dto/invoice-payment-qr-response.dto';
+import { PaymentTransaction } from './domain/entities/payment-transaction.entity';
+import { PaymentProvider } from './domain/enums/payment-provider.enum';
+import { PaymentTransactionStatus } from './domain/enums/payment-transaction-status.enum';
+import { PaymentTransactionType } from './domain/enums/payment-transaction-type.enum';
+import { ReferenceCode } from './domain/value-objects/reference-code.vo';
+import { VietQrUrlBuilder } from './infrastructure/sepay/vietqr-url.builder';
+import { SepayConfig } from './infrastructure/sepay/sepay.config';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
@@ -44,6 +53,8 @@ export class PaymentService {
     private readonly invoiceItemRepo: Repository<InvoiceItem>,
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
+    @InjectRepository(PaymentTransaction)
+    private readonly paymentTxRepo: Repository<PaymentTransaction>,
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BookingServiceEntity)
@@ -54,6 +65,8 @@ export class PaymentService {
     private readonly branchStaffRepo: Repository<BranchStaff>,
     @InjectRepository(ServiceInventoryRequirement)
     private readonly serviceInventoryRequirementRepo: Repository<ServiceInventoryRequirement>,
+    private readonly vietQrUrlBuilder: VietQrUrlBuilder,
+    private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -105,6 +118,8 @@ export class PaymentService {
         });
       }
 
+      await this.linkDepositPaymentsToInvoice(booking.id, existing.id);
+
       const items = await this.invoiceItemRepo.find({ where: { invoiceId: existing.id } });
       return Object.assign(existing, { items });
     }
@@ -137,6 +152,16 @@ export class PaymentService {
       // Re-check for existing invoice under lock — handles the TOCTOU window
       const existingInTx = await manager.findOne(Invoice, { where: { bookingId: lockedBooking.id } });
       if (existingInTx) {
+        await manager.update(
+          Payment,
+          {
+            bookingId: lockedBooking.id,
+            invoiceId: IsNull(),
+            paymentType: PaymentType.Deposit,
+            status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+          },
+          { invoiceId: existingInTx.id },
+        );
         const items = await manager.find(InvoiceItem, { where: { invoiceId: existingInTx.id } });
         return Object.assign(existingInTx, { items });
       }
@@ -157,6 +182,17 @@ export class PaymentService {
           issuedAt: now,
           createdBy: staffId,
         }),
+      );
+
+      await manager.update(
+        Payment,
+        {
+          bookingId: booking.id,
+          invoiceId: IsNull(),
+          paymentType: PaymentType.Deposit,
+          status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+        },
+        { invoiceId: invoice.id },
       );
 
       const items = await Promise.all(
@@ -275,6 +311,18 @@ export class PaymentService {
     }
   }
 
+  private async linkDepositPaymentsToInvoice(bookingId: string, invoiceId: string): Promise<void> {
+    await this.paymentRepo.update(
+      {
+        bookingId,
+        invoiceId: IsNull(),
+        paymentType: PaymentType.Deposit,
+        status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]),
+      },
+      { invoiceId },
+    );
+  }
+
   private async consumeInventoryForCompletedBooking(
     manager: EntityManager,
     booking: Booking,
@@ -379,6 +427,137 @@ export class PaymentService {
 
     const items = await this.invoiceItemRepo.find({ where: { invoiceId: id } });
     return Object.assign(invoice, { items });
+  }
+
+  async createInvoicePaymentQr(invoiceId: string, staffId: string): Promise<InvoicePaymentQrResponseDto> {
+    const invoice = await this.invoiceRepo.findOne({ where: { id: invoiceId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    await this.assertStaffCanHandleInvoice(invoice, staffId);
+
+    if (!invoice.bookingId) {
+      throw new BadRequestException('SePay QR payment requires an invoice linked to a booking');
+    }
+
+    if (![InvoiceStatus.Issued, InvoiceStatus.PartiallyPaid].includes(invoice.status)) {
+      throw new BadRequestException('SePay QR can only be generated for issued or partially paid invoices');
+    }
+
+    const remainingAmount = Math.round(parseFloat(invoice.remainingAmount as unknown as string));
+    if (remainingAmount <= 0) {
+      throw new BadRequestException('This invoice has no remaining amount to pay');
+    }
+
+    const config = this.configService.get<SepayConfig>('sepay', { infer: true })!;
+    const referenceCode = this.generateInvoicePaymentReference(invoice.id, config.paymentCodePrefix);
+    const expiresAt = new Date(Date.now() + config.depositExpireMinutes * 60 * 1000);
+    const qrImageUrl = this.vietQrUrlBuilder.buildFromConfig(referenceCode.toString(), remainingAmount);
+
+    const existingPending = await this.paymentTxRepo.findOne({
+      where: {
+        bookingId: invoice.bookingId,
+        transactionType: PaymentTransactionType.FullPayment,
+        status: PaymentTransactionStatus.Pending,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (existingPending) {
+      const saved = await this.paymentTxRepo.save({
+        ...existingPending,
+        amount: remainingAmount,
+        referenceCode: referenceCode.toString(),
+        qrImageUrl,
+        expiresAt,
+        paidAt: null,
+        sepayTransactionId: null,
+        bankReferenceCode: null,
+        transferContent: null,
+        rawWebhookPayload: null,
+      });
+      return this.toInvoicePaymentQrResponse(saved, invoice);
+    }
+
+    const saved = await this.paymentTxRepo.save(
+      this.paymentTxRepo.create({
+        bookingId: invoice.bookingId,
+        branchId: invoice.branchId,
+        customerId: invoice.customerId,
+        provider: PaymentProvider.SePay,
+        transactionType: PaymentTransactionType.FullPayment,
+        status: PaymentTransactionStatus.Pending,
+        amount: remainingAmount,
+        currency: 'VND',
+        referenceCode: referenceCode.toString(),
+        qrImageUrl,
+        expiresAt,
+        sepayTransactionId: null,
+        bankReferenceCode: null,
+        transferContent: null,
+        rawWebhookPayload: null,
+        paidAt: null,
+      }),
+    );
+
+    return this.toInvoicePaymentQrResponse(saved, invoice);
+  }
+
+  async getInvoicePaymentQr(invoiceId: string, staffId: string): Promise<InvoicePaymentQrResponseDto> {
+    const invoice = await this.invoiceRepo.findOne({ where: { id: invoiceId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    await this.assertStaffCanHandleInvoice(invoice, staffId);
+
+    if (!invoice.bookingId) {
+      throw new BadRequestException('SePay QR payment requires an invoice linked to a booking');
+    }
+
+    const paymentTx = await this.paymentTxRepo.findOne({
+      where: {
+        bookingId: invoice.bookingId,
+        transactionType: PaymentTransactionType.FullPayment,
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!paymentTx) {
+      throw new NotFoundException('Invoice payment QR not found');
+    }
+
+    return this.toInvoicePaymentQrResponse(paymentTx, invoice);
+  }
+
+  private async assertStaffCanHandleInvoice(invoice: Invoice, staffId: string): Promise<void> {
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: invoice.branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new ForbiddenException('You are not an active staff member at this invoice\'s branch');
+    }
+  }
+
+  private generateInvoicePaymentReference(invoiceId: string, prefix: string): ReferenceCode {
+    const numericInvoiceId = Number(invoiceId.replace(/\D/g, ''));
+    if (!Number.isSafeInteger(numericInvoiceId) || numericInvoiceId <= 0) {
+      throw new BadRequestException('Invalid invoice id for SePay reference code');
+    }
+
+    return ReferenceCode.generate(String(50000000 + (numericInvoiceId % 50000000)), prefix);
+  }
+
+  private toInvoicePaymentQrResponse(tx: PaymentTransaction, invoice: Invoice): InvoicePaymentQrResponseDto {
+    return {
+      paymentTransactionId: tx.id,
+      invoiceId: invoice.id,
+      bookingId: invoice.bookingId,
+      referenceCode: tx.referenceCode,
+      amount: parseFloat(tx.amount as unknown as string),
+      paymentStatus: tx.status,
+      invoiceStatus: invoice.status,
+      qrImageUrl: tx.qrImageUrl!,
+      expiresAt: tx.expiresAt,
+      paidAt: tx.paidAt,
+    };
   }
 
   // UC24 — Refund a payment (partial or full)

@@ -5,7 +5,7 @@ import { DataSource, Repository } from 'typeorm';
 import { BranchDailyAggregate } from './entities/branch-daily-aggregate.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
-import { InvoiceStatus } from 'src/modules/payment/enums/invoice-status.enum';
+import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
 
 @Injectable()
 export class BranchDailyAggregateService {
@@ -63,13 +63,13 @@ export class BranchDailyAggregateService {
     );
 
     const [revenueStats] = await this.dataSource.query<{ revenue: string }[]>(
-      `SELECT COALESCE(SUM(total_amount), 0) AS revenue
-       FROM invoices
+      `SELECT COALESCE(SUM(amount - refunded_amount), 0) AS revenue
+       FROM payments
        WHERE branch_id = $1
-         AND status = $2
-         AND issued_at >= $3
-         AND issued_at < $4`,
-      [branchId, InvoiceStatus.Paid, dateStr, nextDateStr],
+         AND status IN ($2, $3)
+         AND paid_at >= $4
+         AND paid_at < $5`,
+      [branchId, PaymentStatus.Paid, PaymentStatus.PartiallyRefunded, dateStr, nextDateStr],
     );
 
     const [newCustomerStats] = await this.dataSource.query<{ count: string }[]>(

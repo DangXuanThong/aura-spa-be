@@ -20,6 +20,7 @@ import { ProcessPaymentDto } from './dto/process-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { InvoiceResponseDto } from './dto/invoice-response.dto';
 import { PaymentResponseDto } from './dto/payment-response.dto';
+import { InvoicePaymentQrResponseDto } from './dto/invoice-payment-qr-response.dto';
 
 @ApiTags('Payments')
 @Controller()
@@ -54,6 +55,31 @@ export class PaymentController {
   async findOne(@Param('id') id: string, @Request() req: any): Promise<InvoiceResponseDto> {
     const invoice = await this.paymentService.findOne(id, req.user);
     return plainToInstance(InvoiceResponseDto, invoice);
+  }
+
+  @Post('invoices/:id/payment-qr')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiCreatedResponse({ description: 'SePay QR generated for invoice remaining payment', type: InvoicePaymentQrResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Invoice is not payable with SePay QR' })
+  @ApiNotFoundResponse({ description: 'Invoice not found' })
+  async createInvoicePaymentQr(@Param('id') id: string, @Request() req: any): Promise<InvoicePaymentQrResponseDto> {
+    return this.paymentService.createInvoicePaymentQr(id, req.user.id);
+  }
+
+  @Get('invoices/:id/payment-qr')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Latest SePay QR status for invoice remaining payment', type: InvoicePaymentQrResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or not active at this branch' })
+  @ApiNotFoundResponse({ description: 'Invoice or QR not found' })
+  async getInvoicePaymentQr(@Param('id') id: string, @Request() req: any): Promise<InvoicePaymentQrResponseDto> {
+    return this.paymentService.getInvoicePaymentQr(id, req.user.id);
   }
 
   // ── Staff: record counter payment (UC24) ─────────────────────────────────
