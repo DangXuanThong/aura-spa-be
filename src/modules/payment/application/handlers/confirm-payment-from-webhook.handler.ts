@@ -12,6 +12,7 @@ import { PaymentTransactionStatus } from '../../domain/enums/payment-transaction
 import { Money } from '../../domain/value-objects/money.vo';
 import { ConfirmPaymentFromWebhookCommand } from '../commands/confirm-payment-from-webhook.command';
 import { ReferenceCode } from '../../domain/value-objects/reference-code.vo';
+import { LoyaltyService } from 'src/modules/loyalty/loyalty.service';
 
 @Injectable()
 export class ConfirmPaymentFromWebhookHandler {
@@ -25,6 +26,7 @@ export class ConfirmPaymentFromWebhookHandler {
     @InjectRepository(Payment)
     private readonly paymentRepo: Repository<Payment>,
     private readonly dataSource: DataSource,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   /**
@@ -133,7 +135,7 @@ export class ConfirmPaymentFromWebhookHandler {
           remainingAmount,
         });
 
-        await manager.save(
+        const payment = await manager.save(
           manager.create(Payment, {
             bookingId: booking.id,
             customerId: booking.customerId,
@@ -149,6 +151,16 @@ export class ConfirmPaymentFromWebhookHandler {
             refundReason: null,
           }),
         );
+
+        await this.loyaltyService.awardForPayment({
+          customerId: booking.customerId,
+          bookingId: booking.id,
+          paymentId: payment.id,
+          amount: depositAmount,
+          source: 'sepay_deposit',
+          description: `Dat coc lich hen #${booking.id}`,
+          manager,
+        });
       });
 
       this.logger.log(

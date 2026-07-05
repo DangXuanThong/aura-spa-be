@@ -109,7 +109,7 @@ export class ConversationService {
       ]);
       if (bs && bs.length > 0) {
         const staffBranchId = bs[0].branch_id;
-        query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId = :staffBranchId))', {
+        query.andWhere('(c.assignedStaffId = :requesterId OR (c.status = :openStatus AND (c.branchId = :staffBranchId OR c.branchId IS NULL)))', {
           openStatus: ConversationStatus.Open,
           requesterId,
           staffBranchId,
@@ -125,7 +125,8 @@ export class ConversationService {
       ]);
       if (bs && bs.length > 0) {
         const mgrBranchId = bs[0].branch_id;
-        query.andWhere('(c.branchId = :mgrBranchId OR c.assignedStaffId = :requesterId)', {
+        query.andWhere('(c.branchId = :mgrBranchId OR c.assignedStaffId = :requesterId OR (c.status = :openStatus AND c.branchId IS NULL))', {
+          openStatus: ConversationStatus.Open,
           mgrBranchId,
           requesterId,
         });

@@ -23,6 +23,7 @@ import { PaymentType } from './enums/payment-type.enum';
 import { GenerateInvoiceDto } from './dto/generate-invoice.dto';
 import { ProcessPaymentDto } from './dto/process-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { LoyaltyService } from 'src/modules/loyalty/loyalty.service';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
@@ -51,6 +52,7 @@ export class PaymentService {
     private readonly serviceInventoryRequirementRepo: Repository<ServiceInventoryRequirement>,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   // UC24 — Generate invoice for a checked-in or in-service booking
@@ -421,6 +423,16 @@ export class PaymentService {
           remainingAmount: newRemaining,
         });
       }
+
+      await this.loyaltyService.awardForPayment({
+        customerId: invoice.customerId,
+        bookingId: invoice.bookingId,
+        paymentId: payment.id,
+        amount: dto.amount,
+        source: 'counter_payment',
+        description: `Thanh toan hoa don ${invoice.invoiceNumber}`,
+        manager,
+      });
 
       return payment;
     });

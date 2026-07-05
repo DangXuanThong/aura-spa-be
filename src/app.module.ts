@@ -27,6 +27,7 @@ import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module'
 import { StrategyModule } from 'src/modules/strategy/strategy.module';
 import { NotificationModule } from 'src/modules/notification/notification.module';
 import { CaslModule } from 'src/common/casl/casl.module';
+import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 
 @Injectable()
 class DatabaseHealthLogger implements OnModuleInit {
@@ -82,6 +83,7 @@ class DatabaseHealthLogger implements OnModuleInit {
     ActivityLogModule,
     StrategyModule,
     NotificationModule,
+    LoyaltyModule,
     CaslModule,
     SeederModule,
   ],
