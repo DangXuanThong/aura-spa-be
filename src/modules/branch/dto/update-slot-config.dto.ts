@@ -1,11 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsInt, IsOptional, Matches, Min } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 
 export class UpdateSlotConfigDto {
   @ApiPropertyOptional({ example: 3, description: 'Max concurrent bookings per slot' })
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(10)
   maxBookings?: number;
 
   @ApiPropertyOptional({ example: 60, description: 'Slot interval in minutes' })

@@ -152,8 +152,21 @@ export class BookingAvailabilityService {
       const slotStart = slotDateTime(date, minutesToTimeStr(t));
       const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60 * 1000);
 
+      // Count active technicians scheduled for this specific slot
+      let scheduledTechCount = 0;
+      if (technicianId) {
+        scheduledTechCount = techShifts.some(s => s.staffId === technicianId && s.requestedStart <= slotStart && s.requestedEnd >= slotEnd) ? 1 : 0;
+      } else if (allTechnicians.length > 0) {
+        scheduledTechCount = allTechnicians.filter(tech =>
+          techShifts.some(s => s.staffId === tech.userId && s.requestedStart <= slotStart && s.requestedEnd >= slotEnd)
+        ).length;
+      }
+
+      // Real capacity is determined entirely by scheduled technician count for this specific slot
+      const effectiveMaxBookings = scheduledTechCount;
+
       const overlapping = dayBookings.filter((b) => b.startTime < slotEnd && b.endTime > slotStart);
-      const remaining = Math.max(0, slotConfig.maxBookings - overlapping.length);
+      const remaining = Math.max(0, effectiveMaxBookings - overlapping.length);
       const isFutureSlot = slotStart > now;
       const technicianAvailable = technicianId
         ? this.isTechAvailable(technicianId, techShifts, techBookings, slotStart, slotEnd)
@@ -164,7 +177,7 @@ export class BookingAvailabilityService {
         endTime: minutesToTimeStr(t + durationMinutes),
         available: isFutureSlot && remaining > 0 && technicianAvailable,
         remainingCapacity: remaining,
-        maxCapacity: slotConfig.maxBookings,
+        maxCapacity: effectiveMaxBookings,
       });
     }
 

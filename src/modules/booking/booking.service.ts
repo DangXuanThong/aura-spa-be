@@ -132,6 +132,28 @@ export class BookingService {
 
     const maxBookings = slotConfig?.maxBookings ?? 1;
 
+    // Resolve active technician count scheduled for this specific slot
+    const allTechs = await this.branchStaffRepo.find({
+      where: { branchId: dto.branchId, position: StaffPosition.Technician, status: StaffStatus.Active }
+    });
+    const techIds = allTechs.map(t => t.userId);
+    let scheduledTechCount = 0;
+    if (techIds.length > 0) {
+      const shifts = await this.scheduleRequestRepo
+        .createQueryBuilder('sr')
+        .where('sr.staffId IN (:...techIds)', { techIds })
+        .andWhere('sr.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+        .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+        .andWhere('sr.requestedStart <= :startTime', { startTime })
+        .andWhere('sr.requestedEnd >= :endTime', { endTime })
+        .getMany();
+      scheduledTechCount = shifts.length;
+    }
+
+    // Real capacity is determined entirely by the number of active scheduled staff for this slot
+    const effectiveMaxBookings = scheduledTechCount;
+
     // 6 + 7 + 8. Lock branch, kiểm tra slot bên trong transaction, tạo booking atomically (BUG-041)
     const booking = await this.dataSource.transaction(async (manager) => {
       // Lock row branch để serialize concurrent requests cho cùng branch.
@@ -149,7 +171,7 @@ export class BookingService {
         .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
         .getCount();
 
-      if (overlapping >= maxBookings) {
+      if (overlapping >= effectiveMaxBookings) {
         throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
       }
 
