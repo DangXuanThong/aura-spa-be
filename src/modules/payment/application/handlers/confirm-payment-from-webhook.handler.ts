@@ -10,8 +10,11 @@ import { Payment } from '../../entities/payment.entity';
 import { PaymentMethod } from '../../enums/payment-method.enum';
 import { PaymentStatus } from '../../enums/payment-status.enum';
 import { PaymentType } from '../../enums/payment-type.enum';
+import { Invoice } from '../../entities/invoice.entity';
+import { InvoiceStatus } from '../../enums/invoice-status.enum';
 import { PaymentTransaction } from '../../domain/entities/payment-transaction.entity';
 import { PaymentTransactionStatus } from '../../domain/enums/payment-transaction-status.enum';
+import { PaymentTransactionType } from '../../domain/enums/payment-transaction-type.enum';
 import { Money } from '../../domain/value-objects/money.vo';
 import { ConfirmPaymentFromWebhookCommand } from '../commands/confirm-payment-from-webhook.command';
 import { ReferenceCode } from '../../domain/value-objects/reference-code.vo';
@@ -98,6 +101,28 @@ export class ConfirmPaymentFromWebhookHandler {
       return;
     }
 
+    if (pendingTx.transactionType === PaymentTransactionType.Deposit) {
+      await this.confirmDepositPayment(pendingTx, referenceCode, expectedMoney, payload, rawPayload, sepayId, paidAt);
+      return;
+    }
+
+    if (pendingTx.transactionType === PaymentTransactionType.FullPayment) {
+      await this.confirmInvoicePayment(pendingTx, referenceCode, expectedMoney, payload, rawPayload, sepayId, paidAt);
+      return;
+    }
+
+    this.logger.warn(`Unsupported payment transaction type=${pendingTx.transactionType} tx=${pendingTx.id}`);
+  }
+
+  private async confirmDepositPayment(
+    pendingTx: PaymentTransaction,
+    referenceCode: ReferenceCode,
+    expectedMoney: Money,
+    payload: SePayWebhookPayload,
+    rawPayload: Record<string, unknown>,
+    sepayId: string,
+    paidAt: Date,
+  ): Promise<void> {
     const booking = await this.bookingRepo.findOne({ where: { id: pendingTx.bookingId } });
     if (!booking || booking.status !== BookingStatus.PendingPayment) {
       this.logger.warn(
@@ -175,6 +200,115 @@ export class ConfirmPaymentFromWebhookHandler {
       );
     } catch (error) {
       this.logger.error(`Failed to confirm payment sepay_id=${sepayId}`, error);
+    }
+  }
+
+  private async confirmInvoicePayment(
+    pendingTx: PaymentTransaction,
+    referenceCode: ReferenceCode,
+    expectedMoney: Money,
+    payload: SePayWebhookPayload,
+    rawPayload: Record<string, unknown>,
+    sepayId: string,
+    paidAt: Date,
+  ): Promise<void> {
+    try {
+      const payment = await this.dataSource.transaction(async (manager) => {
+        const lockedTx = await manager.findOne(PaymentTransaction, {
+          where: { id: pendingTx.id, status: PaymentTransactionStatus.Pending },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!lockedTx) {
+          this.logger.debug(`Concurrent webhook skipped for payment_tx=${pendingTx.id}`);
+          return null;
+        }
+
+        const invoice = await manager.findOne(Invoice, {
+          where: { bookingId: lockedTx.bookingId },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!invoice) {
+          this.logger.warn(`Invoice not found for invoice payment tx=${lockedTx.id} booking_id=${lockedTx.bookingId}`);
+          return null;
+        }
+
+        if (![InvoiceStatus.Issued, InvoiceStatus.PartiallyPaid].includes(invoice.status)) {
+          this.logger.warn(`Invoice not payable invoice_id=${invoice.id} status=${invoice.status}`);
+          return null;
+        }
+
+        const remaining = parseFloat(invoice.remainingAmount as unknown as string);
+        if (expectedMoney.amount > remaining) {
+          this.logger.warn(
+            `Invoice payment exceeds remaining invoice_id=${invoice.id} remaining=${remaining} received=${expectedMoney.amount}`,
+          );
+          return null;
+        }
+
+        lockedTx.status = PaymentTransactionStatus.Paid;
+        lockedTx.sepayTransactionId = sepayId;
+        lockedTx.bankReferenceCode = payload.referenceCode ?? null;
+        lockedTx.transferContent = payload.content;
+        lockedTx.rawWebhookPayload = rawPayload;
+        lockedTx.paidAt = paidAt;
+        await manager.save(lockedTx);
+
+        const invoicePaidBefore = parseFloat(invoice.paidAmount as unknown as string);
+        const totalAmount = parseFloat(invoice.totalAmount as unknown as string);
+        const newPaid = invoicePaidBefore + expectedMoney.amount;
+        const newRemaining = Math.max(0, totalAmount - newPaid);
+        const newStatus = newRemaining <= 0 ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+        const paymentType = invoicePaidBefore > 0 ? PaymentType.RemainingPayment : PaymentType.FullPayment;
+
+        await manager.update(Invoice, invoice.id, {
+          paidAmount: newPaid,
+          remainingAmount: newRemaining,
+          status: newStatus,
+        });
+
+        if (invoice.bookingId) {
+          await manager.update(Booking, invoice.bookingId, {
+            paidAmount: newPaid,
+            remainingAmount: newRemaining,
+          });
+        }
+
+        return manager.save(
+          manager.create(Payment, {
+            bookingId: invoice.bookingId,
+            customerId: invoice.customerId,
+            branchId: invoice.branchId,
+            invoiceId: invoice.id,
+            paymentType,
+            paymentMethod: PaymentMethod.BankTransfer,
+            status: PaymentStatus.Paid,
+            amount: expectedMoney.amount,
+            paidAt,
+            receivedBy: null,
+            refundedAmount: 0,
+            refundReason: null,
+          }),
+        );
+      });
+
+      if (payment) {
+        this.eventEmitter.emit(PAYMENT_EVENTS.PROCESSED, {
+          paymentId: payment.id,
+          invoiceId: payment.invoiceId,
+          customerId: payment.customerId,
+          branchId: payment.branchId,
+          amount: Number(payment.amount),
+          paymentType: payment.paymentType,
+        });
+
+        this.logger.log(
+          `Invoice payment confirmed invoice_id=${payment.invoiceId} reference=${referenceCode.toString()} sepay_id=${sepayId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Failed to confirm invoice payment sepay_id=${sepayId}`, error);
     }
   }
 
