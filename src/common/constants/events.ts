@@ -8,6 +8,7 @@ export const BOOKING_EVENTS = {
   COMPLETED: 'booking.completed',
   RESCHEDULED: 'booking.rescheduled',
   CHECKED_IN: 'booking.checked_in',
+  WALK_IN_PHONE_CONFLICT: 'booking.walk_in_phone_conflict',
 } as const;
 
 export const PAYMENT_EVENTS = {
@@ -17,4 +18,8 @@ export const PAYMENT_EVENTS = {
 
 export const INVENTORY_EVENTS = {
   LOW_STOCK: 'inventory.low_stock',
+} as const;
+
+export const COMPLAINT_EVENTS = {
+  CREATED: 'complaint.created',
 } as const;

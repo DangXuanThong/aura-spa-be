@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { BOOKING_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS } from 'src/common/constants/events';
+import { BOOKING_EVENTS, COMPLAINT_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS } from 'src/common/constants/events';
 import { NotificationService } from './notification.service';
 import { NotificationGateway } from './notification.gateway';
 import { ActivityLogService } from 'src/modules/activity-log/activity-log.service';
@@ -128,6 +128,66 @@ export class NotificationListener {
     });
   }
 
+  @OnEvent(BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT)
+  async handleWalkInPhoneConflict(payload: {
+    branchId: string;
+    staffId: string;
+    customerName: string;
+    customerPhone: string;
+    conflictingUserId: string;
+    conflictingRole: string;
+    conflictingStatus: string;
+    reason: 'internal_account' | 'inactive_customer';
+  }) {
+    const managerIds = await this.getActiveBranchUserIds(payload.branchId, [StaffPosition.Manager]);
+    const recipientIds = Array.from(new Set([payload.staffId, ...managerIds]));
+    const roleLabelByValue: Record<string, string> = {
+      owner: 'chủ hệ thống',
+      manager: 'quản lý',
+      staff: 'nhân viên',
+      admin: 'quản trị viên',
+    };
+    const statusLabelByValue: Record<string, string> = {
+      inactive: 'chưa hoạt động',
+      suspended: 'đang bị khóa',
+      deleted: 'đã bị xóa',
+    };
+    const reasonText =
+      payload.reason === 'internal_account'
+        ? `số điện thoại này đang thuộc tài khoản ${roleLabelByValue[payload.conflictingRole] ?? 'nội bộ'}`
+        : `tài khoản khách hàng dùng số này ${statusLabelByValue[payload.conflictingStatus] ?? 'không còn hoạt động'}`;
+    const message = `Không thể tạo lịch vãng lai cho khách ${payload.customerName} (${payload.customerPhone}) vì ${reasonText}. Vui lòng kiểm tra lại hoặc dùng số điện thoại khác.`;
+
+    await Promise.all(
+      recipientIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'walk_in_phone_conflict',
+          message,
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'user',
+          relatedEntityId: payload.conflictingUserId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.staffId,
+      branchId: payload.branchId,
+      action: BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT,
+      entityType: 'user',
+      entityId: payload.conflictingUserId,
+      metadata: {
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        conflictingRole: payload.conflictingRole,
+        conflictingStatus: payload.conflictingStatus,
+        reason: payload.reason,
+      },
+    });
+  }
+
   @OnEvent(PAYMENT_EVENTS.PROCESSED)
   async handlePaymentProcessed(payload: { paymentId: string; invoiceId: string | null; customerId: string; branchId: string; amount: number }) {
     const notif = await this.notificationService.create({
@@ -176,6 +236,33 @@ export class NotificationListener {
       entityType: 'inventory_item',
       entityId: payload.itemId,
       metadata: { itemName: payload.itemName, currentQty: payload.currentQty },
+    });
+  }
+
+  @OnEvent(COMPLAINT_EVENTS.CREATED)
+  async handleComplaintCreated(payload: { complaintId: string; customerId: string; customerName: string; branchId: string; title: string }) {
+    const managerIds = await this.getActiveBranchUserIds(payload.branchId, [StaffPosition.Manager]);
+    await Promise.all(
+      managerIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'complaint_created',
+          message: `Nhận 1 khiếu nại mới từ ${payload.customerName}: ${payload.title}`,
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'complaint',
+          relatedEntityId: payload.complaintId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.branchId,
+      action: COMPLAINT_EVENTS.CREATED,
+      entityType: 'complaint',
+      entityId: payload.complaintId,
+      metadata: { customerName: payload.customerName, title: payload.title },
     });
   }
 }

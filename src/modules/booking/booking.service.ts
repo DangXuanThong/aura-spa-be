@@ -51,8 +51,9 @@ import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-se
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
 function normalizeVietnamPhone(phone: string): string {
-  const compact = phone.replace(/\s/g, '');
+  const compact = phone.replace(/[^\d+]/g, '');
   if (/^\+84\d{9}$/.test(compact)) return `0${compact.slice(3)}`;
+  if (/^84\d{9}$/.test(compact)) return `0${compact.slice(2)}`;
   return compact;
 }
 
@@ -599,8 +600,31 @@ export class BookingService {
 
       const existingCustomer = await this.userService.findByPhone(customerPhone);
       if (existingCustomer) {
-        if (existingCustomer.role !== UserRole.Customer || existingCustomer.status !== UserStatus.Active) {
-          throw new BadRequestException('This phone number belongs to a non-customer or inactive account');
+        if (existingCustomer.role !== UserRole.Customer) {
+          this.eventEmitter.emit(BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT, {
+            branchId: dto.branchId,
+            staffId,
+            customerName,
+            customerPhone,
+            conflictingUserId: existingCustomer.id,
+            conflictingRole: existingCustomer.role,
+            conflictingStatus: existingCustomer.status,
+            reason: 'internal_account',
+          });
+          throw new BadRequestException('So dien thoai nay dang thuoc tai khoan noi bo. Vui long dung so khac.');
+        }
+        if (existingCustomer.status !== UserStatus.Active) {
+          this.eventEmitter.emit(BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT, {
+            branchId: dto.branchId,
+            staffId,
+            customerName,
+            customerPhone,
+            conflictingUserId: existingCustomer.id,
+            conflictingRole: existingCustomer.role,
+            conflictingStatus: existingCustomer.status,
+            reason: 'inactive_customer',
+          });
+          throw new BadRequestException('Tai khoan khach hang dung so dien thoai nay dang bi khoa hoac chua hoat dong.');
         }
         customerId = existingCustomer.id;
       } else {
