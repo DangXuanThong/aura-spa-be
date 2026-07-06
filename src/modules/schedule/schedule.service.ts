@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ScheduleRequest } from './entities/schedule-request.entity';
@@ -15,6 +16,7 @@ import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
+import { SCHEDULE_REQUEST_EVENTS } from 'src/common/constants/events';
 
 const REQUEST_TYPE_TO_SCHEDULE_TYPE: Record<ScheduleRequestType, ScheduleType> = {
   [ScheduleRequestType.WorkShift]: ScheduleType.Working,
@@ -33,6 +35,7 @@ export class ScheduleService {
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // UC21 — Submit schedule request
@@ -218,7 +221,19 @@ export class ScheduleService {
       }),
     );
 
-    return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+    const approved = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
+
+    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.APPROVED, {
+      requestId: approved.id,
+      staffId: approved.staffId,
+      branchId: approved.branchId,
+      reviewedBy: managerId,
+      requestType: approved.requestType,
+      requestedStart: approved.requestedStart,
+      requestedEnd: approved.requestedEnd,
+    });
+
+    return approved;
   }
 
   // UC26 — Reject a schedule request
@@ -234,7 +249,19 @@ export class ScheduleService {
     const now = new Date();
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
 
-    return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+    const rejected = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
+
+    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.REJECTED, {
+      requestId: rejected.id,
+      staffId: rejected.staffId,
+      branchId: rejected.branchId,
+      reviewedBy: managerId,
+      requestType: rejected.requestType,
+      requestedStart: rejected.requestedStart,
+      requestedEnd: rejected.requestedEnd,
+    });
+
+    return rejected;
   }
 
   // UC21 — Cancel a pending schedule request
@@ -247,7 +274,18 @@ export class ScheduleService {
     }
 
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Cancelled });
-    return this.scheduleRequestRepo.findOne({ where: { id } }) as Promise<ScheduleRequest>;
+    const cancelled = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
+
+    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.CANCELLED, {
+      requestId: cancelled.id,
+      staffId: cancelled.staffId,
+      branchId: cancelled.branchId,
+      requestType: cancelled.requestType,
+      requestedStart: cancelled.requestedStart,
+      requestedEnd: cancelled.requestedEnd,
+    });
+
+    return cancelled;
   }
 
   async getActiveStaff(branchId: string, userId: string, role: string): Promise<any[]> {

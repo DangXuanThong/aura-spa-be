@@ -107,7 +107,9 @@ export class ConfirmPaymentFromWebhookHandler {
     }
 
     if (pendingTx.transactionType === PaymentTransactionType.FullPayment) {
-      await this.confirmInvoicePayment(pendingTx, referenceCode, expectedMoney, payload, rawPayload, sepayId, paidAt);
+      this.logger.log(
+        `Invoice QR transfer received but left for staff confirmation tx=${pendingTx.id} reference=${referenceCode.toString()} sepay_id=${sepayId}`,
+      );
       return;
     }
 

@@ -49,6 +49,7 @@ import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-cou
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
+const ROOM_OCCUPYING_STATUSES = [BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
 function normalizeVietnamPhone(phone: string): string {
   const compact = phone.replace(/[^\d+]/g, '');
@@ -301,7 +302,7 @@ export class BookingService {
     }
 
     // 8-10. Mark old as rescheduled, create new booking and service record atomically
-    return this.dataSource.transaction(async (manager) => {
+    const newBooking = await this.dataSource.transaction(async (manager) => {
       await manager.update(Booking, id, { status: BookingStatus.Rescheduled });
 
       const newBooking = await manager.save(
@@ -350,6 +351,17 @@ export class BookingService {
 
       return newBooking;
     });
+
+    this.eventEmitter.emit(BOOKING_EVENTS.RESCHEDULED, {
+      bookingId: newBooking.id,
+      previousBookingId: booking.id,
+      customerId: newBooking.customerId,
+      branchId: newBooking.branchId,
+      startTime: newBooking.startTime,
+      endTime: newBooking.endTime,
+    });
+
+    return newBooking;
   }
 
   // UC13 — Transfer Appointment to Another Branch
@@ -433,7 +445,7 @@ export class BookingService {
     const discountAmount = parseFloat(booking.discountAmount as unknown as string);
     const newRemainingAmount = Math.max(0, newUnitPrice - discountAmount - paidAmount);
 
-    return this.dataSource.transaction(async (manager) => {
+    const newBooking = await this.dataSource.transaction(async (manager) => {
       await manager.update(Booking, id, { status: BookingStatus.Transferred });
 
       const newBooking = await manager.save(
@@ -473,6 +485,18 @@ export class BookingService {
 
       return newBooking;
     });
+
+    this.eventEmitter.emit(BOOKING_EVENTS.TRANSFERRED, {
+      bookingId: newBooking.id,
+      previousBookingId: booking.id,
+      customerId: newBooking.customerId,
+      sourceBranchId: booking.branchId,
+      targetBranchId: newBooking.branchId,
+      startTime: newBooking.startTime,
+      endTime: newBooking.endTime,
+    });
+
+    return newBooking;
   }
 
   // UC12 — Cancel Appointment
@@ -523,7 +547,16 @@ export class BookingService {
       }
     });
 
-    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+    const cancelled = (await this.bookingRepo.findOne({ where: { id } })) as Booking;
+
+    this.eventEmitter.emit(BOOKING_EVENTS.CANCELLED, {
+      bookingId: cancelled.id,
+      customerId: cancelled.customerId,
+      branchId: cancelled.branchId,
+      reason: cancelled.cancelReason ?? undefined,
+    });
+
+    return cancelled;
   }
 
   // UC18 — Check In Customer
@@ -541,6 +574,10 @@ export class BookingService {
       throw new BadRequestException('Cannot check in before the booking start time');
     }
 
+    if (!booking.room) {
+      throw new BadRequestException('Room must be assigned before check-in');
+    }
+
     // 3. Staff must be active at the booking branch
     const assignment = await this.branchStaffRepo.findOne({
       where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
@@ -549,11 +586,32 @@ export class BookingService {
       throw new ForbiddenException('You are not an active staff member at this branch');
     }
 
+    await this.ensureRoomAvailable(booking, booking.room);
+
     // 4. Mark as checked in
     await this.bookingRepo.update(id, {
       status: BookingStatus.CheckedIn,
       checkedInAt: new Date(),
     });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+  async completeService(id: string, staffId: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    if (![BookingStatus.CheckedIn, BookingStatus.InService].includes(booking.status)) {
+      throw new BadRequestException('Only checked-in or in-service bookings can be marked as service completed');
+    }
+
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new ForbiddenException(`Staff ${staffId} is not an active staff member at this branch`);
+    }
+
+    await this.bookingRepo.update(id, { status: BookingStatus.ServiceCompleted, room: null });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
@@ -1126,6 +1184,22 @@ export class BookingService {
     return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
   }
 
+  private async ensureRoomAvailable(booking: Booking, room: string): Promise<void> {
+    const conflict = await this.bookingRepo
+      .createQueryBuilder('booking')
+      .where('booking.id != :id', { id: booking.id })
+      .andWhere('booking.branchId = :branchId', { branchId: booking.branchId })
+      .andWhere('booking.room = :room', { room })
+      .andWhere('booking.status IN (:...statuses)', { statuses: ROOM_OCCUPYING_STATUSES })
+      .andWhere('booking.startTime < :endTime', { endTime: booking.endTime })
+      .andWhere('booking.endTime > :startTime', { startTime: booking.startTime })
+      .getOne();
+
+    if (conflict) {
+      throw new ConflictException('Room is already assigned to another booking in this time slot');
+    }
+  }
+
   async assignRoom(id: string, room: string | null, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
@@ -1135,6 +1209,14 @@ export class BookingService {
         where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
       });
       if (!assignment) throw new ForbiddenException('You are not active at this branch');
+    }
+
+    if (room && !ROOM_OCCUPYING_STATUSES.includes(booking.status)) {
+      throw new BadRequestException('Room can only be assigned before or during service');
+    }
+
+    if (room) {
+      await this.ensureRoomAvailable(booking, room);
     }
 
     await this.bookingRepo.update(id, { room });

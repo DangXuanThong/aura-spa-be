@@ -13,6 +13,7 @@ import { BookingService as BookingServiceEntity } from 'src/modules/booking/enti
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { BranchInventory } from 'src/modules/inventory/entities/branch-inventory.entity';
+import { InventoryItem } from 'src/modules/inventory/entities/inventory-item.entity';
 import { InventoryTransaction } from 'src/modules/inventory/entities/inventory-transaction.entity';
 import { ServiceInventoryRequirement } from 'src/modules/inventory/entities/service-inventory-requirement.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
@@ -40,7 +41,7 @@ import { SepayConfig } from './infrastructure/sepay/sepay.config';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
-const INVOICEABLE_STATUSES = [BookingStatus.CheckedIn, BookingStatus.InService, BookingStatus.Completed];
+const INVOICEABLE_STATUSES = [BookingStatus.CheckedIn, BookingStatus.InService, BookingStatus.ServiceCompleted, BookingStatus.Completed];
 // Vietnam VAT is 10% — kept 0 until pricing model is confirmed with the product team
 const INVOICE_TAX_RATE = 0;
 
@@ -211,16 +212,33 @@ export class PaymentService {
         ),
       );
 
-      if (booking.status !== BookingStatus.Completed) {
-        await this.consumeInventoryForCompletedBooking(manager, booking, bookingServices, staffId);
-        await this.updateTreatmentProgressOnCheckout(manager, booking, bookingServices, invoice.id, staffId, now);
-        await manager.update(Booking, booking.id, { status: BookingStatus.Completed, completedAt: now });
+      if (remainingAmount <= 0) {
+        await this.completePaidBooking(manager, booking.id, invoice.id, staffId, now);
       }
 
       return Object.assign(invoice, { items });
     });
   }
 
+  private async completePaidBooking(
+    manager: EntityManager,
+    bookingId: string,
+    invoiceId: string,
+    staffId: string,
+    now: Date,
+  ): Promise<void> {
+    const booking = await manager.findOne(Booking, { where: { id: bookingId } });
+    if (!booking || booking.status === BookingStatus.Completed) return;
+
+    const bookingServices = await manager.find(BookingServiceEntity, {
+      where: { bookingId },
+      relations: ['service'],
+    });
+
+    await this.consumeInventoryForCompletedBooking(manager, booking, bookingServices, staffId);
+    await this.updateTreatmentProgressOnCheckout(manager, booking, bookingServices, invoiceId, staffId, now);
+    await manager.update(Booking, booking.id, { status: BookingStatus.Completed, completedAt: now });
+  }
   private async updateTreatmentProgressOnCheckout(
     manager: EntityManager,
     booking: Booking,
@@ -356,12 +374,14 @@ export class PaymentService {
 
         const stockRow = await manager.findOne(BranchInventory, {
           where: { branchId: booking.branchId, inventoryItemId: requirement.inventoryItemId },
-          relations: ['inventoryItem'],
           lock: { mode: 'pessimistic_write' },
         });
         if (!stockRow) {
           throw new BadRequestException(`Inventory item ${requirement.inventoryItemId} is not configured at this branch`);
         }
+        const inventoryItem = await manager.findOne(InventoryItem, {
+          where: { id: requirement.inventoryItemId },
+        });
 
         const before = parseFloat(stockRow.currentQuantity as unknown as string);
         const after = Math.round((before - quantityToConsume) * 1000) / 1000;
@@ -374,13 +394,13 @@ export class PaymentService {
           lastTransactionAt: new Date(),
         });
 
-        const minLevel = stockRow.inventoryItem?.minStockLevel !== null && stockRow.inventoryItem?.minStockLevel !== undefined
-          ? parseFloat(stockRow.inventoryItem.minStockLevel as unknown as string)
+        const minLevel = inventoryItem?.minStockLevel !== null && inventoryItem?.minStockLevel !== undefined
+          ? parseFloat(inventoryItem.minStockLevel as unknown as string)
           : null;
         if (minLevel !== null && after < minLevel) {
           this.eventEmitter.emit(INVENTORY_EVENTS.LOW_STOCK, {
             itemId: requirement.inventoryItemId,
-            itemName: stockRow.inventoryItem?.name ?? 'Material',
+            itemName: inventoryItem?.name ?? 'Material',
             branchId: booking.branchId,
             currentQty: after,
           });
@@ -708,6 +728,10 @@ export class PaymentService {
           paidAmount: newPaid,
           remainingAmount: newRemaining,
         });
+
+        if (newRemaining <= 0) {
+          await this.completePaidBooking(manager, invoice.bookingId, invoice.id, staffId, now);
+        }
       }
 
       return payment;

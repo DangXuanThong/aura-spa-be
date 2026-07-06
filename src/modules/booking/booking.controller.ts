@@ -185,6 +185,19 @@ export class BookingController {
 
   // ── Manager: reassign technician (UC28) ─────────────────────────────────
 
+
+  @Patch(':id/complete-service')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Staff)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Service finished - booking status updated to service_completed', type: BookingResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Staff role required or caller is not active at this branch' })
+  @ApiBadRequestResponse({ description: 'Booking is not checked in or in service' })
+  async completeService(@Param('id') id: string, @Request() req: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.completeService(id, req.user.id);
+    return plainToInstance(BookingResponseDto, { ...booking, services: [] });
+  }
   @Patch(':id/reassign-technician')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.Manager)

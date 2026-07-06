@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { BOOKING_EVENTS, COMPLAINT_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS } from 'src/common/constants/events';
+import { BOOKING_EVENTS, COMPLAINT_EVENTS, INVENTORY_EVENTS, PAYMENT_EVENTS, SCHEDULE_REQUEST_EVENTS } from 'src/common/constants/events';
 import { NotificationService } from './notification.service';
 import { NotificationGateway } from './notification.gateway';
 import { ActivityLogService } from 'src/modules/activity-log/activity-log.service';
@@ -106,6 +106,110 @@ export class NotificationListener {
     });
   }
 
+  @OnEvent(BOOKING_EVENTS.RESCHEDULED)
+  async handleBookingRescheduled(payload: {
+    bookingId: string;
+    previousBookingId: string;
+    customerId: string;
+    branchId: string;
+    startTime: Date;
+    endTime: Date;
+  }) {
+    const customerNotif = await this.notificationService.create({
+      recipientUserId: payload.customerId,
+      notificationType: 'booking_rescheduled',
+      message: 'Lịch hẹn của bạn đã được đổi sang thời gian mới.',
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'booking',
+      relatedEntityId: payload.bookingId,
+    });
+    this.gateway.sendToUser(payload.customerId, customerNotif);
+
+    const branchUserIds = await this.getActiveBranchUserIds(payload.branchId);
+    await Promise.all(
+      branchUserIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'booking_rescheduled',
+          message: 'Một lịch hẹn tại chi nhánh vừa được đổi lịch.',
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'booking',
+          relatedEntityId: payload.bookingId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.branchId,
+      action: BOOKING_EVENTS.RESCHEDULED,
+      entityType: 'booking',
+      entityId: payload.bookingId,
+      metadata: {
+        previousBookingId: payload.previousBookingId,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+      },
+    });
+  }
+
+  @OnEvent(BOOKING_EVENTS.TRANSFERRED)
+  async handleBookingTransferred(payload: {
+    bookingId: string;
+    previousBookingId: string;
+    customerId: string;
+    sourceBranchId: string;
+    targetBranchId: string;
+    startTime: Date;
+    endTime: Date;
+  }) {
+    const customerNotif = await this.notificationService.create({
+      recipientUserId: payload.customerId,
+      notificationType: 'booking_transferred',
+      message: 'Lịch hẹn của bạn đã được chuyển sang chi nhánh mới.',
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'booking',
+      relatedEntityId: payload.bookingId,
+    });
+    this.gateway.sendToUser(payload.customerId, customerNotif);
+
+    const branchUserIds = Array.from(
+      new Set([
+        ...(await this.getActiveBranchUserIds(payload.sourceBranchId)),
+        ...(await this.getActiveBranchUserIds(payload.targetBranchId)),
+      ]),
+    );
+    await Promise.all(
+      branchUserIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'booking_transferred',
+          message: 'Một lịch hẹn vừa được chuyển chi nhánh.',
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'booking',
+          relatedEntityId: payload.bookingId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.targetBranchId,
+      action: BOOKING_EVENTS.TRANSFERRED,
+      entityType: 'booking',
+      entityId: payload.bookingId,
+      metadata: {
+        previousBookingId: payload.previousBookingId,
+        sourceBranchId: payload.sourceBranchId,
+        targetBranchId: payload.targetBranchId,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+      },
+    });
+  }
+
   @OnEvent(BOOKING_EVENTS.COMPLETED)
   async handleBookingCompleted(payload: { bookingId: string; customerId: string; branchId: string; staffId: string }) {
     const notif = await this.notificationService.create({
@@ -125,6 +229,114 @@ export class NotificationListener {
       entityType: 'booking',
       entityId: payload.bookingId,
       metadata: { customerId: payload.customerId },
+    });
+  }
+
+  @OnEvent(SCHEDULE_REQUEST_EVENTS.APPROVED)
+  async handleScheduleRequestApproved(payload: {
+    requestId: string;
+    staffId: string;
+    branchId: string;
+    reviewedBy: string;
+    requestType: string;
+    requestedStart: Date;
+    requestedEnd: Date;
+  }) {
+    const notif = await this.notificationService.create({
+      recipientUserId: payload.staffId,
+      notificationType: 'schedule_request_approved',
+      message: 'Yêu cầu lịch làm việc của bạn đã được duyệt.',
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'schedule_request',
+      relatedEntityId: payload.requestId,
+    });
+    this.gateway.sendToUser(payload.staffId, notif);
+
+    this.activityLogService.log({
+      userId: payload.reviewedBy,
+      branchId: payload.branchId,
+      action: SCHEDULE_REQUEST_EVENTS.APPROVED,
+      entityType: 'schedule_request',
+      entityId: payload.requestId,
+      metadata: {
+        staffId: payload.staffId,
+        requestType: payload.requestType,
+        requestedStart: payload.requestedStart,
+        requestedEnd: payload.requestedEnd,
+      },
+    });
+  }
+
+  @OnEvent(SCHEDULE_REQUEST_EVENTS.REJECTED)
+  async handleScheduleRequestRejected(payload: {
+    requestId: string;
+    staffId: string;
+    branchId: string;
+    reviewedBy: string;
+    requestType: string;
+    requestedStart: Date;
+    requestedEnd: Date;
+  }) {
+    const notif = await this.notificationService.create({
+      recipientUserId: payload.staffId,
+      notificationType: 'schedule_request_rejected',
+      message: 'Yêu cầu lịch làm việc của bạn đã bị từ chối.',
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'schedule_request',
+      relatedEntityId: payload.requestId,
+    });
+    this.gateway.sendToUser(payload.staffId, notif);
+
+    this.activityLogService.log({
+      userId: payload.reviewedBy,
+      branchId: payload.branchId,
+      action: SCHEDULE_REQUEST_EVENTS.REJECTED,
+      entityType: 'schedule_request',
+      entityId: payload.requestId,
+      metadata: {
+        staffId: payload.staffId,
+        requestType: payload.requestType,
+        requestedStart: payload.requestedStart,
+        requestedEnd: payload.requestedEnd,
+      },
+    });
+  }
+
+  @OnEvent(SCHEDULE_REQUEST_EVENTS.CANCELLED)
+  async handleScheduleRequestCancelled(payload: {
+    requestId: string;
+    staffId: string;
+    branchId: string;
+    requestType: string;
+    requestedStart: Date;
+    requestedEnd: Date;
+  }) {
+    const managerIds = await this.getActiveBranchUserIds(payload.branchId, [StaffPosition.Manager]);
+    await Promise.all(
+      managerIds.map(async (userId) => {
+        const notif = await this.notificationService.create({
+          recipientUserId: userId,
+          notificationType: 'schedule_request_cancelled',
+          message: 'Một yêu cầu lịch làm việc vừa được nhân viên hủy.',
+          channel: NotificationChannel.InApp,
+          relatedEntityType: 'schedule_request',
+          relatedEntityId: payload.requestId,
+        });
+        this.gateway.sendToUser(userId, notif);
+      }),
+    );
+
+    this.activityLogService.log({
+      userId: payload.staffId,
+      branchId: payload.branchId,
+      action: SCHEDULE_REQUEST_EVENTS.CANCELLED,
+      entityType: 'schedule_request',
+      entityId: payload.requestId,
+      metadata: {
+        requestType: payload.requestType,
+        requestedStart: payload.requestedStart,
+        requestedEnd: payload.requestedEnd,
+      },
     });
   }
 

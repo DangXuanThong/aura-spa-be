@@ -7,8 +7,15 @@ export const BOOKING_EVENTS = {
   CANCELLED: 'booking.cancelled',
   COMPLETED: 'booking.completed',
   RESCHEDULED: 'booking.rescheduled',
+  TRANSFERRED: 'booking.transferred',
   CHECKED_IN: 'booking.checked_in',
   WALK_IN_PHONE_CONFLICT: 'booking.walk_in_phone_conflict',
+} as const;
+
+export const SCHEDULE_REQUEST_EVENTS = {
+  APPROVED: 'schedule_request.approved',
+  REJECTED: 'schedule_request.rejected',
+  CANCELLED: 'schedule_request.cancelled',
 } as const;
 
 export const PAYMENT_EVENTS = {
