@@ -1,8 +1,18 @@
 const { Client } = require("pg");
+require("dotenv").config();
+
+const host = process.env.POSTGRES_HOST || "localhost";
 
 async function run() {
   const client = new Client({
-    connectionString: "postgres://postgres:postgres@0.0.0.0:5432/aura_spa",
+    host,
+    port: Number(process.env.POSTGRES_PORT || 5432),
+    user: process.env.POSTGRES_USER || "postgres",
+    password: process.env.POSTGRES_PASSWORD || "postgres",
+    database: process.env.POSTGRES_DB || process.env.POSTGRES_NAME || "aura_spa",
+    ssl: host.includes(".neon.tech") || process.env.POSTGRES_SSL === "true"
+      ? { rejectUnauthorized: false }
+      : false,
   });
 
   try {
