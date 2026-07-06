@@ -22,6 +22,7 @@ import { SePayWebhookGuard } from './infrastructure/guards/sepay-webhook.guard';
 import { CreateDepositPaymentHandler } from './application/handlers/create-deposit-payment.handler';
 import { ConfirmPaymentFromWebhookHandler } from './application/handlers/confirm-payment-from-webhook.handler';
 import { GetPaymentByBookingHandler } from './application/handlers/get-payment-by-booking.handler';
+import { LoyaltyModule } from 'src/modules/loyalty/loyalty.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { GetPaymentByBookingHandler } from './application/handlers/get-payment-b
       ServiceInventoryRequirement,
     ]),
     AuthModule,
+    LoyaltyModule,
   ],
   controllers: [PaymentController, DepositPaymentController, SePayWebhookController],
   providers: [

@@ -38,6 +38,7 @@ import { PaymentTransactionType } from './domain/enums/payment-transaction-type.
 import { ReferenceCode } from './domain/value-objects/reference-code.vo';
 import { VietQrUrlBuilder } from './infrastructure/sepay/vietqr-url.builder';
 import { SepayConfig } from './infrastructure/sepay/sepay.config';
+import { LoyaltyService } from 'src/modules/loyalty/loyalty.service';
 
 type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
 
@@ -70,6 +71,7 @@ export class PaymentService {
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   // UC24 — Generate invoice for a checked-in or in-service booking
@@ -733,6 +735,16 @@ export class PaymentService {
           await this.completePaidBooking(manager, invoice.bookingId, invoice.id, staffId, now);
         }
       }
+
+      await this.loyaltyService.awardForPayment({
+        customerId: invoice.customerId,
+        bookingId: invoice.bookingId,
+        paymentId: payment.id,
+        amount: dto.amount,
+        source: 'counter_payment',
+        description: `Thanh toan hoa don ${invoice.invoiceNumber}`,
+        manager,
+      });
 
       return payment;
     });

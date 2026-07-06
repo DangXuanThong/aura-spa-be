@@ -20,6 +20,7 @@ import { ConfirmPaymentFromWebhookCommand } from '../commands/confirm-payment-fr
 import { ReferenceCode } from '../../domain/value-objects/reference-code.vo';
 import { SePayWebhookPayload } from '../../infrastructure/sepay/sepay-webhook-payload.interface';
 import { SepayConfig } from '../../infrastructure/sepay/sepay.config';
+import { LoyaltyService } from 'src/modules/loyalty/loyalty.service';
 
 @Injectable()
 export class ConfirmPaymentFromWebhookHandler {
@@ -35,6 +36,7 @@ export class ConfirmPaymentFromWebhookHandler {
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   /**
@@ -168,7 +170,7 @@ export class ConfirmPaymentFromWebhookHandler {
           remainingAmount,
         });
 
-        return manager.save(
+        const payment = await manager.save(
           manager.create(Payment, {
             bookingId: booking.id,
             customerId: booking.customerId,
@@ -184,6 +186,18 @@ export class ConfirmPaymentFromWebhookHandler {
             refundReason: null,
           }),
         );
+
+        await this.loyaltyService.awardForPayment({
+          customerId: booking.customerId,
+          bookingId: booking.id,
+          paymentId: payment.id,
+          amount: depositAmount,
+          source: 'sepay_deposit',
+          description: `Dat coc lich hen #${booking.id}`,
+          manager,
+        });
+
+        return payment;
       });
 
       if (payment) {
