@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -18,6 +18,7 @@ import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ScheduleService } from './schedule.service';
 import { ApprovalStatus } from './enums/approval-status.enum';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
+import { AssignShiftDto } from './dto/assign-shift.dto';
 import { ScheduleRequestResponseDto } from './dto/schedule-request-response.dto';
 import { ScheduleRequestManagerResponseDto } from './dto/schedule-request-manager-response.dto';
 import { TimetableDayDto } from './dto/timetable-day.dto';
@@ -40,6 +41,19 @@ export class ScheduleController {
   @ApiBadRequestResponse({ description: 'Invalid time range or start time is not in the future' })
   async create(@Body() dto: CreateScheduleRequestDto, @Request() req: any): Promise<ScheduleRequestResponseDto> {
     const request = await this.scheduleService.create(dto, req.user.id);
+    return plainToInstance(ScheduleRequestResponseDto, request);
+  }
+
+  // ── Manager: assign shift directly (UC26 — Assign Shifts) ────────────────
+
+  @Post('assign')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ description: 'Shift directly assigned by manager', type: ScheduleRequestResponseDto })
+  async assign(@Body() dto: AssignShiftDto, @Request() req: any): Promise<ScheduleRequestResponseDto> {
+    const request = await this.scheduleService.assignShiftDirectly(dto, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
@@ -120,6 +134,18 @@ export class ScheduleController {
     return plainToInstance(ScheduleRequestResponseDto, request);
   }
 
+  // ── Manager: batch approve requests (UC26 — Assign Shifts) ──────────────────
+
+  @Post('batch-approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.OK)
+  async batchApprove(@Body() dto: { ids: string[] }, @Request() req: any) {
+    await this.scheduleService.batchApprove(dto.ids, req.user.id);
+    return { success: true, message: 'Approved successfully' };
+  }
+
   // ── Manager: reject request (UC26 — Assign Shifts) ──────────────────────
 
   @Patch(':id/reject')
@@ -149,6 +175,18 @@ export class ScheduleController {
   async cancel(@Param('id') id: string, @Request() req: any): Promise<ScheduleRequestResponseDto> {
     const request = await this.scheduleService.cancel(id, req.user.id);
     return plainToInstance(ScheduleRequestResponseDto, request);
+  }
+
+  // ── Manager: delete shift (UC26 — Assign Shifts) ─────────────────────────
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.OK)
+  async delete(@Param('id') id: string, @Request() req: any) {
+    await this.scheduleService.removeShift(id, req.user.id);
+    return { success: true, message: 'Shift deleted successfully' };
   }
 
   @Get('active-staff/:branchId')

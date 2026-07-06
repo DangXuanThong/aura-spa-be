@@ -29,4 +29,6 @@ export const INVENTORY_EVENTS = {
 
 export const COMPLAINT_EVENTS = {
   CREATED: 'complaint.created',
+  RESOLVED: 'complaint.resolved',
+  REJECTED: 'complaint.rejected',
 } as const;

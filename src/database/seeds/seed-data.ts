@@ -1437,4 +1437,22 @@ export const COMPLAINT_DEFS = [
       'We sincerely apologize. We have reviewed our linen management process and provided additional training to our housekeeping staff.',
     resolvedAt: new Date(),
   },
+  {
+    customerEmail: 'customer.one@demo.auraspa.local',
+    branchCode: 'DAN-NHS',
+    title: 'Nhiệt độ đá quá nóng',
+    description: 'Nhiệt độ đá bazan dùng trong massage đá nóng quá nóng, gây cảm giác bỏng rát khó chịu trong suốt buổi trị liệu.',
+    status: ComplaintStatus.Open,
+    resolutionNote: null as string | null,
+    resolvedAt: null as Date | null,
+  },
+  {
+    customerEmail: 'customer.two@demo.auraspa.local',
+    branchCode: 'DAN-NHS',
+    title: 'Kỹ thuật viên đến trễ',
+    description: 'Kỹ thuật viên đến trễ 20 phút so với lịch hẹn mà không thông báo trước cho tôi.',
+    status: ComplaintStatus.Resolved,
+    resolutionNote: 'Đã xin lỗi khách hàng trực tiếp và gửi tặng mã giảm giá 20% cho buổi trị liệu tiếp theo.',
+    resolvedAt: new Date(),
+  },
 ];

@@ -13,6 +13,7 @@ import { ScheduleType } from './enums/schedule-type.enum';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { CreateScheduleRequestDto } from './dto/create-schedule-request.dto';
+import { AssignShiftDto } from './dto/assign-shift.dto';
 import { StaffShiftResponseDto } from './dto/staff-shift-response.dto';
 import { TimetableAppointmentDto, TimetableDayDto } from './dto/timetable-day.dto';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
@@ -38,9 +39,7 @@ export class ScheduleService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  // UC21 — Submit schedule request
   async create(dto: CreateScheduleRequestDto, staffId: string): Promise<ScheduleRequest> {
-    // 1. Staff must be active at the specified branch
     const assignment = await this.branchStaffRepo.findOne({
       where: { userId: staffId, branchId: dto.branchId, status: StaffStatus.Active },
     });
@@ -48,7 +47,6 @@ export class ScheduleService {
       throw new ForbiddenException('You are not an active staff member at this branch');
     }
 
-    // 2. Time range must be valid and in the future
     const start = new Date(dto.requestedStart);
     const end = new Date(dto.requestedEnd);
     if (end <= start) {
@@ -73,7 +71,6 @@ export class ScheduleService {
     );
   }
 
-  // UC21 — View own schedule requests
   async findMine(staffId: string): Promise<ScheduleRequest[]> {
     return this.scheduleRequestRepo.find({
       where: { staffId },
@@ -81,13 +78,11 @@ export class ScheduleService {
     });
   }
 
-  // UC22 — View personal shift timetable with assigned customers
   async getMyTimetable(staffId: string, from: string, to: string): Promise<TimetableDayDto[]> {
     if (to < from) throw new BadRequestException('to must be on or after from');
 
     const fromDate = new Date(`${from}T00:00:00.000Z`);
     const toDate = new Date(`${to}T23:59:59.999Z`);
-
     const excluded = [BookingStatus.PendingPayment, BookingStatus.Cancelled, BookingStatus.Rescheduled, BookingStatus.Transferred];
 
     const [shifts, bookings] = await Promise.all([
@@ -111,7 +106,6 @@ export class ScheduleService {
         .getMany(),
     ]);
 
-    // Build day buckets for every date in the range
     const dayMap = new Map<string, TimetableDayDto>();
     const cursor = new Date(fromDate);
     const rangeEnd = new Date(`${to}T00:00:00.000Z`);
@@ -161,7 +155,6 @@ export class ScheduleService {
     return Array.from(dayMap.values());
   }
 
-  // UC26 — List schedule requests for a branch (manager)
   async listByBranch(
     branchId: string,
     managerId: string,
@@ -178,7 +171,6 @@ export class ScheduleService {
     return requests.map((r) => Object.assign(r, { staffFullName: r.staff?.fullName ?? '', staffEmail: r.staff?.email ?? null }));
   }
 
-  // Owner: List all pending schedule requests system-wide
   async listAllPending(): Promise<(ScheduleRequest & { staffFullName: string; staffEmail: string | null; branchName: string })[]> {
     const requests = await this.scheduleRequestRepo.find({
       where: { status: ApprovalStatus.Pending },
@@ -195,7 +187,6 @@ export class ScheduleService {
     );
   }
 
-  // UC26 — Approve a schedule request and create the corresponding shift
   async approve(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
@@ -222,21 +213,20 @@ export class ScheduleService {
     );
 
     const approved = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
-
-    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.APPROVED, {
-      requestId: approved.id,
-      staffId: approved.staffId,
-      branchId: approved.branchId,
-      reviewedBy: managerId,
-      requestType: approved.requestType,
-      requestedStart: approved.requestedStart,
-      requestedEnd: approved.requestedEnd,
-    });
-
+    this.emitScheduleEvent(SCHEDULE_REQUEST_EVENTS.APPROVED, approved, managerId);
     return approved;
   }
 
-  // UC26 — Reject a schedule request
+  async batchApprove(ids: string[], managerId: string): Promise<void> {
+    for (const id of ids) {
+      try {
+        await this.approve(id, managerId);
+      } catch {
+        // Continue approving the remaining requests.
+      }
+    }
+  }
+
   async reject(id: string, managerId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Schedule request not found');
@@ -250,21 +240,10 @@ export class ScheduleService {
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Rejected, reviewedBy: managerId, reviewedAt: now });
 
     const rejected = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
-
-    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.REJECTED, {
-      requestId: rejected.id,
-      staffId: rejected.staffId,
-      branchId: rejected.branchId,
-      reviewedBy: managerId,
-      requestType: rejected.requestType,
-      requestedStart: rejected.requestedStart,
-      requestedEnd: rejected.requestedEnd,
-    });
-
+    this.emitScheduleEvent(SCHEDULE_REQUEST_EVENTS.REJECTED, rejected, managerId);
     return rejected;
   }
 
-  // UC21 — Cancel a pending schedule request
   async cancel(id: string, staffId: string): Promise<ScheduleRequest> {
     const request = await this.scheduleRequestRepo.findOne({ where: { id } });
     if (!request) throw new NotFoundException(`Schedule request ${id} not found`);
@@ -275,16 +254,7 @@ export class ScheduleService {
 
     await this.scheduleRequestRepo.update(id, { status: ApprovalStatus.Cancelled });
     const cancelled = (await this.scheduleRequestRepo.findOne({ where: { id } })) as ScheduleRequest;
-
-    this.eventEmitter.emit(SCHEDULE_REQUEST_EVENTS.CANCELLED, {
-      requestId: cancelled.id,
-      staffId: cancelled.staffId,
-      branchId: cancelled.branchId,
-      requestType: cancelled.requestType,
-      requestedStart: cancelled.requestedStart,
-      requestedEnd: cancelled.requestedEnd,
-    });
-
+    this.emitScheduleEvent(SCHEDULE_REQUEST_EVENTS.CANCELLED, cancelled);
     return cancelled;
   }
 
@@ -356,10 +326,74 @@ export class ScheduleService {
     });
   }
 
+  async assignShiftDirectly(dto: AssignShiftDto, managerId: string): Promise<ScheduleRequest> {
+    await this.assertManagerAtBranch(managerId, dto.branchId);
+
+    const start = new Date(`${dto.date}T${dto.startTime}:00+07:00`);
+    const end = new Date(`${dto.date}T${dto.endTime}:00+07:00`);
+
+    if (end <= start) {
+      throw new BadRequestException('End time must be after start time');
+    }
+
+    const type = (dto.requestType as ScheduleRequestType) || ScheduleRequestType.WorkShift;
+
+    const request = await this.scheduleRequestRepo.save(
+      this.scheduleRequestRepo.create({
+        staffId: dto.staffId,
+        branchId: dto.branchId,
+        requestType: type,
+        requestedStart: start,
+        requestedEnd: end,
+        status: ApprovalStatus.Approved,
+        reason: 'Manager assigned directly',
+        reviewedBy: managerId,
+        reviewedAt: new Date(),
+      }),
+    );
+
+    await this.staffScheduleRepo.save(
+      this.staffScheduleRepo.create({
+        staffId: dto.staffId,
+        branchId: dto.branchId,
+        startTime: start,
+        endTime: end,
+        scheduleType: REQUEST_TYPE_TO_SCHEDULE_TYPE[type],
+        status: ScheduleStatus.Active,
+        sourceRequestId: request.id,
+        createdBy: managerId,
+      }),
+    );
+
+    this.emitScheduleEvent(SCHEDULE_REQUEST_EVENTS.APPROVED, request, managerId);
+    return request;
+  }
+
+  async removeShift(id: string, managerId: string): Promise<void> {
+    const request = await this.scheduleRequestRepo.findOne({ where: { id } });
+    if (!request) throw new NotFoundException('Shift not found');
+    await this.assertManagerAtBranch(managerId, request.branchId);
+
+    await this.staffScheduleRepo.delete({ sourceRequestId: id });
+    await this.scheduleRequestRepo.delete(id);
+  }
+
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {
     const assignment = await this.branchStaffRepo.findOne({
       where: { userId: managerId, branchId, status: StaffStatus.Active },
     });
     if (!assignment) throw new ForbiddenException('You are not an active staff member at this branch');
+  }
+
+  private emitScheduleEvent(event: string, request: ScheduleRequest, reviewedBy?: string): void {
+    this.eventEmitter.emit(event, {
+      requestId: request.id,
+      staffId: request.staffId,
+      branchId: request.branchId,
+      reviewedBy,
+      requestType: request.requestType,
+      requestedStart: request.requestedStart,
+      requestedEnd: request.requestedEnd,
+    });
   }
 }

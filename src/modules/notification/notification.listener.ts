@@ -477,4 +477,48 @@ export class NotificationListener {
       metadata: { customerName: payload.customerName, title: payload.title },
     });
   }
+
+  @OnEvent(COMPLAINT_EVENTS.RESOLVED)
+  async handleComplaintResolved(payload: { complaintId: string; customerId: string; branchId: string; title: string; resolutionNote?: string | null }) {
+    const notif = await this.notificationService.create({
+      recipientUserId: payload.customerId,
+      notificationType: 'complaint_resolved',
+      message: `Khieu nai "${payload.title}" cua ban da duoc giai quyet.${payload.resolutionNote ? ` Phan hoi: ${payload.resolutionNote}` : ''}`,
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'complaint',
+      relatedEntityId: payload.complaintId,
+    });
+    this.gateway.sendToUser(payload.customerId, notif);
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.branchId,
+      action: COMPLAINT_EVENTS.RESOLVED,
+      entityType: 'complaint',
+      entityId: payload.complaintId,
+      metadata: { title: payload.title },
+    });
+  }
+
+  @OnEvent(COMPLAINT_EVENTS.REJECTED)
+  async handleComplaintRejected(payload: { complaintId: string; customerId: string; branchId: string; title: string; resolutionNote?: string | null }) {
+    const notif = await this.notificationService.create({
+      recipientUserId: payload.customerId,
+      notificationType: 'complaint_rejected',
+      message: `Khieu nai "${payload.title}" cua ban da bi tu choi.${payload.resolutionNote ? ` Ly do: ${payload.resolutionNote}` : ''}`,
+      channel: NotificationChannel.InApp,
+      relatedEntityType: 'complaint',
+      relatedEntityId: payload.complaintId,
+    });
+    this.gateway.sendToUser(payload.customerId, notif);
+
+    this.activityLogService.log({
+      userId: payload.customerId,
+      branchId: payload.branchId,
+      action: COMPLAINT_EVENTS.REJECTED,
+      entityType: 'complaint',
+      entityId: payload.complaintId,
+      metadata: { title: payload.title },
+    });
+  }
 }

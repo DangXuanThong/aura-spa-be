@@ -12,13 +12,13 @@ export class CreateComplaintDto {
   @IsString()
   branchId?: string;
 
-  @ApiProperty({ example: 'Không hài lòng về trải nghiệm dịch vụ' })
+  @ApiProperty({ example: 'Service experience feedback' })
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
   title!: string;
 
-  @ApiProperty({ example: 'Mình đã đặt lịch massage nhưng thời gian chờ quá lâu và nhân viên chưa giải thích rõ.' })
+  @ApiProperty({ example: 'The appointment wait time was too long and the staff did not explain the delay clearly.' })
   @IsNotEmpty()
   @IsString()
   description!: string;

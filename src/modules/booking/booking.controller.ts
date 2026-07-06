@@ -230,15 +230,27 @@ export class BookingController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiForbiddenResponse({ description: 'Staff, manager, or owner access required for this branch' })
   @ApiQuery({ name: 'date', required: false, description: 'Filter by date (YYYY-MM-DD, Vietnam timezone)' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
   @ApiQuery({ name: 'limit', required: false, description: 'Max records to return (default 100, max 200)' })
   async findByBranch(
     @Param('branchId') branchId: string,
     @Request() req: any,
     @Query('date') date?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
     @Query('limit') limitStr?: string,
   ): Promise<BookingResponseDto[]> {
     const limit = limitStr ? Math.min(parseInt(limitStr, 10) || 100, 200) : 100;
-    const bookings = await this.bookingService.findBranchBookings(branchId, req.user.id, req.user.role, date, limit);
+    const bookings = await this.bookingService.findBranchBookings(
+      branchId,
+      req.user.id,
+      req.user.role,
+      date,
+      limit,
+      startDate,
+      endDate,
+    );
     return plainToInstance(BookingResponseDto, bookings);
   }
 

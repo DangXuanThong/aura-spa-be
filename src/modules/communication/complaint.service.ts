@@ -10,6 +10,7 @@ import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { ComplaintStatus } from './enums/complaint-status.enum';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { ResolveComplaintDto } from './dto/resolve-complaint.dto';
+import { UserRole } from 'src/modules/user/enums/user-role.enum';
 
 const ACTIONABLE_STATUSES = [ComplaintStatus.Open, ComplaintStatus.InProgress];
 
@@ -25,8 +26,6 @@ export class ComplaintService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  // UC29 — List complaints at branch
-  // UC29 - Customer submits a complaint
   async create(dto: CreateComplaintDto, customerId: string): Promise<Complaint> {
     let branchId = dto.branchId;
     let bookingId = dto.bookingId ?? null;
@@ -55,11 +54,11 @@ export class ComplaintService {
       }),
     );
 
-    const created = await this.findUpdatedComplaint(complaint.id);
+    const created = await this.findUpdatedComplaint(complaint.id, ['customer', 'branch', 'booking']);
     this.eventEmitter.emit(COMPLAINT_EVENTS.CREATED, {
       complaintId: created.id,
       customerId,
-      customerName: created.customer?.fullName ?? 'Khách hàng',
+      customerName: created.customer?.fullName ?? 'Customer',
       branchId: created.branchId,
       title: created.title,
     });
@@ -70,11 +69,12 @@ export class ComplaintService {
   async findMine(customerId: string): Promise<Complaint[]> {
     return this.complaintRepo.find({
       where: { customerId },
-      relations: ['customer'],
+      relations: ['customer', 'branch', 'booking'],
       order: { createdAt: 'DESC' },
       take: 100,
     });
   }
+
   async listByBranch(branchId: string, managerId: string, status?: ComplaintStatus): Promise<Complaint[]> {
     await this.assertManagerAtBranch(managerId, branchId);
 
@@ -83,20 +83,25 @@ export class ComplaintService {
 
     return this.complaintRepo.find({
       where,
-      relations: ['customer'],
+      relations: ['customer', 'branch', 'booking'],
       order: { createdAt: 'DESC' },
     });
   }
 
-  // UC29 — View complaint detail
-  async findOne(id: string, managerId: string): Promise<Complaint> {
-    const complaint = await this.complaintRepo.findOne({ where: { id }, relations: ['customer'] });
+  async findOne(id: string, requesterId: string, requesterRole: string): Promise<Complaint> {
+    const complaint = await this.complaintRepo.findOne({ where: { id }, relations: ['customer', 'branch', 'booking'] });
     if (!complaint) throw new NotFoundException(`Complaint ${id} not found`);
-    await this.assertManagerAtBranch(managerId, complaint.branchId);
+
+    if (requesterRole === UserRole.Customer) {
+      if (complaint.customerId !== requesterId) {
+        throw new ForbiddenException('You do not have access to this complaint');
+      }
+    } else {
+      await this.assertManagerAtBranch(requesterId, complaint.branchId);
+    }
     return complaint;
   }
 
-  // UC29 — Mark complaint as in progress
   async startProcessing(id: string, managerId: string): Promise<Complaint> {
     const complaint = await this.complaintRepo.findOne({ where: { id } });
     if (!complaint) throw new NotFoundException(`Complaint ${id} not found`);
@@ -114,7 +119,6 @@ export class ComplaintService {
     return this.findUpdatedComplaint(id);
   }
 
-  // UC29 — Resolve complaint
   async resolve(id: string, dto: ResolveComplaintDto, managerId: string): Promise<Complaint> {
     const complaint = await this.complaintRepo.findOne({ where: { id } });
     if (!complaint) throw new NotFoundException(`Complaint ${id} not found`);
@@ -131,10 +135,18 @@ export class ComplaintService {
       resolvedAt: new Date(),
     });
 
-    return this.findUpdatedComplaint(id);
+    const updated = await this.findUpdatedComplaint(id);
+    this.eventEmitter.emit(COMPLAINT_EVENTS.RESOLVED, {
+      complaintId: updated.id,
+      customerId: updated.customerId,
+      branchId: updated.branchId,
+      title: updated.title,
+      resolutionNote: updated.resolutionNote,
+    });
+
+    return updated;
   }
 
-  // UC29 — Reject complaint
   async reject(id: string, dto: ResolveComplaintDto, managerId: string): Promise<Complaint> {
     const complaint = await this.complaintRepo.findOne({ where: { id } });
     if (!complaint) throw new NotFoundException(`Complaint ${id} not found`);
@@ -151,7 +163,16 @@ export class ComplaintService {
       resolvedAt: new Date(),
     });
 
-    return this.findUpdatedComplaint(id);
+    const updated = await this.findUpdatedComplaint(id);
+    this.eventEmitter.emit(COMPLAINT_EVENTS.REJECTED, {
+      complaintId: updated.id,
+      customerId: updated.customerId,
+      branchId: updated.branchId,
+      title: updated.title,
+      resolutionNote: updated.resolutionNote,
+    });
+
+    return updated;
   }
 
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {
@@ -161,8 +182,8 @@ export class ComplaintService {
     if (!assignment) throw new ForbiddenException('You are not an active manager at this branch');
   }
 
-  private async findUpdatedComplaint(id: string): Promise<Complaint> {
-    const complaint = await this.complaintRepo.findOne({ where: { id }, relations: ['customer'] });
+  private async findUpdatedComplaint(id: string, relations: string[] = ['customer']): Promise<Complaint> {
+    const complaint = await this.complaintRepo.findOne({ where: { id }, relations });
     if (!complaint) throw new NotFoundException(`Complaint ${id} not found`);
     return complaint;
   }

@@ -50,6 +50,15 @@ export class ComplaintController {
     return plainToInstance(ComplaintResponseDto, complaints);
   }
 
+  @Get('customer/my')
+  @Roles(UserRole.Customer)
+  @ApiOkResponse({ description: 'Complaints submitted by the authenticated customer', type: [ComplaintResponseDto] })
+  @ApiForbiddenResponse({ description: 'Customer role required' })
+  async listMyComplaints(@Request() req: any): Promise<ComplaintResponseDto[]> {
+    const complaints = await this.complaintService.findMine(req.user.id);
+    return plainToInstance(ComplaintResponseDto, complaints);
+  }
+
   @Get('branch/:branchId')
   @Roles(UserRole.Manager)
   @ApiOkResponse({ description: 'Complaints for the branch', type: [ComplaintResponseDto] })
@@ -65,12 +74,12 @@ export class ComplaintController {
   }
 
   @Get(':id')
-  @Roles(UserRole.Manager)
+  @Roles(UserRole.Manager, UserRole.Customer)
   @ApiOkResponse({ description: 'Complaint detail', type: ComplaintResponseDto })
-  @ApiForbiddenResponse({ description: 'Manager role required or not assigned to this branch' })
+  @ApiForbiddenResponse({ description: 'Caller does not have access to this complaint' })
   @ApiNotFoundResponse({ description: 'Complaint not found' })
   async findOne(@Param('id') id: string, @Request() req: any): Promise<ComplaintResponseDto> {
-    const complaint = await this.complaintService.findOne(id, req.user.id);
+    const complaint = await this.complaintService.findOne(id, req.user.id, req.user.role);
     return plainToInstance(ComplaintResponseDto, complaint);
   }
 
