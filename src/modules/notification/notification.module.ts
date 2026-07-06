@@ -4,6 +4,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Notification } from './entities/notification.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { BookingService as BookingServiceEntity } from 'src/modules/booking/entities/booking-service.entity';
 import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
 import { NotificationListener } from './notification.listener';
@@ -14,7 +16,7 @@ import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification, BranchStaff]),
+    TypeOrmModule.forFeature([Notification, BranchStaff, Booking, BookingServiceEntity]),
     AuthModule,
     ActivityLogModule,
     JwtModule.registerAsync({

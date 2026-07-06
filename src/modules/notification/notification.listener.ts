@@ -10,6 +10,15 @@ import { NotificationChannel } from './entities/notification.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
 import { StaffPosition } from 'src/modules/branch/enums/staff-position.enum';
+import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { BookingService as BookingServiceEntity } from 'src/modules/booking/entities/booking-service.entity';
+
+type BookingNotificationDetail = {
+  customerName: string;
+  customerPhone: string | null;
+  serviceName: string;
+  startLabel: string;
+};
 
 @Injectable()
 export class NotificationListener {
@@ -18,6 +27,10 @@ export class NotificationListener {
     private readonly activityLogService: ActivityLogService,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(Booking)
+    private readonly bookingRepo: Repository<Booking>,
+    @InjectRepository(BookingServiceEntity)
+    private readonly bookingServiceRepo: Repository<BookingServiceEntity>,
     private readonly gateway: NotificationGateway,
   ) {}
 
@@ -28,13 +41,49 @@ export class NotificationListener {
     return records.map((r) => r.userId);
   }
 
+  private async getBookingNotificationDetail(bookingId: string): Promise<BookingNotificationDetail | null> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ['customer'],
+    });
+    if (!booking) return null;
+
+    const bookingService = await this.bookingServiceRepo.findOne({
+      where: { bookingId },
+      relations: ['service'],
+    });
+
+    return {
+      customerName: booking.customer?.fullName || `Khách #${booking.customerId}`,
+      customerPhone: booking.customer?.phone || null,
+      serviceName: bookingService?.service?.name || 'Dịch vụ spa',
+      startLabel: new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(booking.startTime),
+    };
+  }
+
+  private bookingDetailMessage(detail: BookingNotificationDetail | null, fallback: string): string {
+    if (!detail) return fallback;
+    const phone = detail.customerPhone ? ` (${detail.customerPhone})` : '';
+    return `${detail.customerName}${phone} - ${detail.serviceName} lúc ${detail.startLabel}`;
+  }
+
   @OnEvent(BOOKING_EVENTS.CREATED)
   async handleBookingCreated(payload: { bookingId: string; customerId: string; branchId: string; staffId?: string }) {
+    const detail = await this.getBookingNotificationDetail(payload.bookingId);
     // Notify customer
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_confirmed',
-      message: 'Lịch hẹn của bạn đã được đặt thành công.',
+      message: detail
+        ? `Lịch hẹn ${detail.serviceName} lúc ${detail.startLabel} đã được đặt thành công.`
+        : 'Lịch hẹn của bạn đã được đặt thành công.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -48,7 +97,7 @@ export class NotificationListener {
         const notif = await this.notificationService.create({
           recipientUserId: userId,
           notificationType: 'booking_confirmed',
-          message: `Có lịch hẹn mới vừa được đặt tại chi nhánh.`,
+          message: `Lịch mới: ${this.bookingDetailMessage(detail, 'Có lịch hẹn mới vừa được đặt tại chi nhánh.')}`,
           channel: NotificationChannel.InApp,
           relatedEntityType: 'booking',
           relatedEntityId: payload.bookingId,
@@ -69,11 +118,14 @@ export class NotificationListener {
 
   @OnEvent(BOOKING_EVENTS.CANCELLED)
   async handleBookingCancelled(payload: { bookingId: string; customerId: string; branchId: string; reason?: string }) {
+    const detail = await this.getBookingNotificationDetail(payload.bookingId);
     // Notify customer
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_cancelled',
-      message: 'Lịch hẹn của bạn đã được hủy.',
+      message: detail
+        ? `Lịch hẹn ${detail.serviceName} lúc ${detail.startLabel} đã được hủy.`
+        : 'Lịch hẹn của bạn đã được hủy.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -87,7 +139,7 @@ export class NotificationListener {
         const notif = await this.notificationService.create({
           recipientUserId: userId,
           notificationType: 'booking_cancelled',
-          message: `Một lịch hẹn vừa bị hủy tại chi nhánh.`,
+          message: `Lịch bị hủy: ${this.bookingDetailMessage(detail, 'Một lịch hẹn vừa bị hủy tại chi nhánh.')}${payload.reason ? ` Lý do: ${payload.reason}` : ''}`,
           channel: NotificationChannel.InApp,
           relatedEntityType: 'booking',
           relatedEntityId: payload.bookingId,
@@ -115,10 +167,13 @@ export class NotificationListener {
     startTime: Date;
     endTime: Date;
   }) {
+    const detail = await this.getBookingNotificationDetail(payload.bookingId);
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_rescheduled',
-      message: 'Lịch hẹn của bạn đã được đổi sang thời gian mới.',
+      message: detail
+        ? `Lịch hẹn ${detail.serviceName} đã được đổi sang ${detail.startLabel}.`
+        : 'Lịch hẹn của bạn đã được đổi sang thời gian mới.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -131,7 +186,7 @@ export class NotificationListener {
         const notif = await this.notificationService.create({
           recipientUserId: userId,
           notificationType: 'booking_rescheduled',
-          message: 'Một lịch hẹn tại chi nhánh vừa được đổi lịch.',
+          message: `Lịch đổi giờ: ${this.bookingDetailMessage(detail, 'Một lịch hẹn tại chi nhánh vừa được đổi lịch.')}`,
           channel: NotificationChannel.InApp,
           relatedEntityType: 'booking',
           relatedEntityId: payload.bookingId,
@@ -164,10 +219,13 @@ export class NotificationListener {
     startTime: Date;
     endTime: Date;
   }) {
+    const detail = await this.getBookingNotificationDetail(payload.bookingId);
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_transferred',
-      message: 'Lịch hẹn của bạn đã được chuyển sang chi nhánh mới.',
+      message: detail
+        ? `Lịch hẹn ${detail.serviceName} lúc ${detail.startLabel} đã được chuyển sang chi nhánh mới.`
+        : 'Lịch hẹn của bạn đã được chuyển sang chi nhánh mới.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -185,7 +243,7 @@ export class NotificationListener {
         const notif = await this.notificationService.create({
           recipientUserId: userId,
           notificationType: 'booking_transferred',
-          message: 'Một lịch hẹn vừa được chuyển chi nhánh.',
+          message: `Lịch chuyển chi nhánh: ${this.bookingDetailMessage(detail, 'Một lịch hẹn vừa được chuyển chi nhánh.')}`,
           channel: NotificationChannel.InApp,
           relatedEntityType: 'booking',
           relatedEntityId: payload.bookingId,
@@ -212,10 +270,13 @@ export class NotificationListener {
 
   @OnEvent(BOOKING_EVENTS.COMPLETED)
   async handleBookingCompleted(payload: { bookingId: string; customerId: string; branchId: string; staffId: string }) {
+    const detail = await this.getBookingNotificationDetail(payload.bookingId);
     const notif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_completed',
-      message: 'Dịch vụ của bạn đã được hoàn thành. Cảm ơn bạn đã sử dụng dịch vụ!',
+      message: detail
+        ? `Dịch vụ ${detail.serviceName} của bạn đã hoàn thành. Cảm ơn bạn đã sử dụng dịch vụ!`
+        : 'Dịch vụ của bạn đã được hoàn thành. Cảm ơn bạn đã sử dụng dịch vụ!',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
