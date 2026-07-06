@@ -439,91 +439,122 @@ export class SeederService implements OnApplicationBootstrap {
         );
         const managerId = mgrRes[0]?.user_id || '1';
 
-        // Check if schedules already exist for these techs
-        const scheduleCheck = await queryRunner.query(
-          "SELECT COUNT(*) FROM staff_schedules WHERE branch_id = $1",
-          [branch.id]
-        );
-        const scheduleCount = parseInt(scheduleCheck[0].count);
+        // Always clean up old shifts for these technicians at this branch to avoid overlaps and duplicates
+        const techIds = updatedTechs.map((t) => t.id);
+        if (techIds.length > 0) {
+          await queryRunner.query(
+            `DELETE FROM staff_schedules WHERE staff_id IN (${techIds.map((_, idx) => `$${idx + 1}`).join(', ')}) AND branch_id = $${techIds.length + 1}`,
+            [...techIds, branch.id]
+          );
+          await queryRunner.query(
+            `DELETE FROM schedule_requests WHERE staff_id IN (${techIds.map((_, idx) => `$${idx + 1}`).join(', ')}) AND branch_id = $${techIds.length + 1}`,
+            [...techIds, branch.id]
+          );
+        }
 
-        if (scheduleCount === 0) {
-          // Register shifts from July 4th to July 12th
-          const t1 = updatedTechs[0].id;
-          const t2 = updatedTechs[1].id;
-          const t3 = updatedTechs[2].id;
-          const t4 = updatedTechs[3].id;
-          const t5 = updatedTechs[4].id;
+        // Register shifts from July 4th to July 12th
+        const t1 = updatedTechs[0].id;
+        const t2 = updatedTechs[1].id;
+        const t3 = updatedTechs[2].id;
+        const t4 = updatedTechs[3].id;
+        const t5 = updatedTechs[4].id;
 
-          const insertShift = async (staffId: string, dateStr: string, startHour: number, endHour: number, label: string) => {
-            const start = new Date(`${dateStr}T${startHour.toString().padStart(2, '0')}:00:00+07:00`);
-            const end = new Date(`${dateStr}T${endHour.toString().padStart(2, '0')}:00:00+07:00`);
+        const insertShift = async (staffId: string, dateStr: string, startHour: number, endHour: number, label: string) => {
+          const start = new Date(`${dateStr}T${startHour.toString().padStart(2, '0')}:00:00+07:00`);
+          const end = new Date(`${dateStr}T${endHour.toString().padStart(2, '0')}:00:00+07:00`);
 
-            const reqRes = await queryRunner.query(
-              `INSERT INTO schedule_requests (staff_id, branch_id, request_type, status, requested_start, requested_end, reason, reviewed_by, reviewed_at, created_at, updated_at)
-               VALUES ($1, $2, 'work_shift', 'approved', $3, $4, $5, $6, NOW(), NOW(), NOW()) RETURNING id`,
-              [staffId, branch.id, start, end, label, managerId]
-            );
-            const reqId = reqRes[0].id;
+          const reqRes = await queryRunner.query(
+            `INSERT INTO schedule_requests (staff_id, branch_id, request_type, status, requested_start, requested_end, reason, reviewed_by, reviewed_at, created_at, updated_at)
+             VALUES ($1, $2, 'work_shift', 'approved', $3, $4, $5, $6, NOW(), NOW(), NOW()) RETURNING id`,
+            [staffId, branch.id, start, end, label, managerId]
+          );
+          const reqId = reqRes[0].id;
 
-            await queryRunner.query(
-              `INSERT INTO staff_schedules (staff_id, branch_id, start_time, end_time, schedule_type, status, source_request_id, created_by, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, 'working', 'active', $5, $6, NOW(), NOW())`,
-              [staffId, branch.id, start, end, reqId, managerId]
-            );
-          };
+          await queryRunner.query(
+            `INSERT INTO staff_schedules (staff_id, branch_id, start_time, end_time, schedule_type, status, source_request_id, created_by, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, 'working', 'active', $5, $6, NOW(), NOW())`,
+            [staffId, branch.id, start, end, reqId, managerId]
+          );
+        };
 
-          for (let dayOffset = 0; dayOffset <= 8; dayOffset++) {
-            const dayNum = (4 + dayOffset).toString().padStart(2, '0');
-            const dateStr = `2026-07-${dayNum}`;
+        for (let dayOffset = 0; dayOffset <= 8; dayOffset++) {
+          const dayNum = (4 + dayOffset).toString().padStart(2, '0');
+          const dateStr = `2026-07-${dayNum}`;
 
-            await insertShift(t1, dateStr, 8, 12, 'Ca sáng T1');
-            await insertShift(t1, dateStr, 13, 20, 'Ca chiều T1');
-            await insertShift(t2, dateStr, 13, 20, 'Ca chiều T2');
-            await insertShift(t3, dateStr, 8, 20, 'Ca gộp T3');
-            await insertShift(t4, dateStr, 8, 20, 'Ca gộp T4');
-            await insertShift(t5, dateStr, 13, 20, 'Ca chiều T5');
-          }
+          // Match UI presets: Morning (08:00 - 14:00), Afternoon (14:00 - 20:00), Full Day (08:00 - 20:00)
+          await insertShift(t1, dateStr, 8, 14, 'Ca sáng (08:00 - 14:00)');
+          await insertShift(t2, dateStr, 14, 20, 'Ca chiều (14:00 - 20:00)');
+          await insertShift(t3, dateStr, 8, 14, 'Ca sáng (08:00 - 14:00)');
+          await insertShift(t4, dateStr, 8, 20, 'Cả ngày (08:00 - 20:00)');
+          await insertShift(t5, dateStr, 14, 20, 'Ca chiều (14:00 - 20:00)');
         }
 
         // Seed reviews for new techs
         if (customerId && serviceId) {
           for (const tech of updatedTechs) {
-            const reviewCheck = await queryRunner.query("SELECT COUNT(*) FROM reviews WHERE technician_id = $1", [tech.id]);
-            const reviewCount = parseInt(reviewCheck[0].count);
-            
-            if (reviewCount === 0) {
-              const seedRatings = [
-                [5, 4, 5],
-                [4, 5, 4],
-                [5, 5, 5],
-                [4, 4, 5],
-                [5, 5, 4]
-              ][parseInt(tech.id) % 5];
+            // Clean up old seeded reviews, payments, invoices, invoice items, and bookings first to avoid foreign key violations
+            await queryRunner.query(
+              `DELETE FROM reviews WHERE booking_id IN (SELECT id FROM bookings WHERE technician_id = $1 AND notes = 'review-seed')`,
+              [tech.id]
+            );
+            await queryRunner.query(
+              `DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE technician_id = $1 AND notes = 'review-seed')`,
+              [tech.id]
+            );
+            await queryRunner.query(
+              `DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE booking_id IN (SELECT id FROM bookings WHERE technician_id = $1 AND notes = 'review-seed'))`,
+              [tech.id]
+            );
+            await queryRunner.query(
+              `DELETE FROM invoices WHERE booking_id IN (SELECT id FROM bookings WHERE technician_id = $1 AND notes = 'review-seed')`,
+              [tech.id]
+            );
+            await queryRunner.query(
+              `DELETE FROM booking_services WHERE booking_id IN (SELECT id FROM bookings WHERE technician_id = $1 AND notes = 'review-seed')`,
+              [tech.id]
+            );
+            await queryRunner.query(
+              `DELETE FROM bookings WHERE technician_id = $1 AND notes = 'review-seed'`,
+              [tech.id]
+            );
 
-              for (let i = 0; i < seedRatings.length; i++) {
-                const rating = seedRatings[i];
-                
-                const bookingRes = await queryRunner.query(
-                  `INSERT INTO bookings (customer_id, branch_id, technician_id, start_time, end_time, status, source, subtotal_amount, discount_amount, deposit_required_amount, paid_amount, remaining_amount, created_at, updated_at)
-                   VALUES ($1, $2, $3, NOW() - INTERVAL '1 day', NOW() - INTERVAL '23 hours', 'completed', 'online', 100000, 0, 0, 100000, 0, NOW(), NOW()) RETURNING id`,
-                  [customerId, branch.id, tech.id]
-                );
-                const bookingId = bookingRes[0].id;
+            const seedRatings = [
+              [5, 4, 5],
+              [4, 5, 4],
+              [5, 5, 5],
+              [4, 4, 5],
+              [5, 5, 4]
+            ][parseInt(tech.id) % 5];
 
-                const comment = [
-                  "Dịch vụ rất tốt, nhân viên thân thiện chu đáo!",
-                  "Kỹ thuật viên tay nghề cao, làm rất êm ái.",
-                  "Rất hài lòng với chất lượng phục vụ tại đây.",
-                  "Nhân viên làm nhiệt tình, chu đáo sạch sẽ.",
-                  "Tuyệt vời, sẽ quay lại lần sau!"
-                ][(parseInt(tech.id) + i) % 5];
+            for (let i = 0; i < seedRatings.length; i++) {
+              const rating = seedRatings[i];
 
-                await queryRunner.query(
-                  `INSERT INTO reviews (customer_id, booking_id, branch_id, service_id, technician_id, rating, comment, status, created_at, updated_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', NOW(), NOW())`,
-                  [customerId, bookingId, branch.id, serviceId, tech.id, rating, comment]
-                );
-              }
+              // Spread bookings over past days with clean, round hours (e.g. 09:00, 10:00, 11:00)
+              const bookingStart = new Date();
+              bookingStart.setDate(bookingStart.getDate() - (i + 1));
+              bookingStart.setUTCHours(2 + (i % 3), 0, 0, 0); // 02:00, 03:00, 04:00 UTC -> 09:00, 10:00, 11:00 VN time
+              const bookingEnd = new Date(bookingStart.getTime() + 60 * 60 * 1000); // 60 mins duration
+
+              const bookingRes = await queryRunner.query(
+                `INSERT INTO bookings (customer_id, branch_id, technician_id, start_time, end_time, status, source, subtotal_amount, discount_amount, deposit_required_amount, paid_amount, remaining_amount, notes, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, 'completed', 'online', 100000, 0, 0, 100000, 0, 'review-seed', NOW(), NOW()) RETURNING id`,
+                [customerId, branch.id, tech.id, bookingStart, bookingEnd]
+              );
+              const bookingId = bookingRes[0].id;
+
+              const comment = [
+                "Dịch vụ rất tốt, nhân viên thân thiện chu đáo!",
+                "Kỹ thuật viên tay nghề cao, làm rất êm ái.",
+                "Rất hài lòng với chất lượng phục vụ tại đây.",
+                "Nhân viên làm nhiệt tình, chu đáo sạch sẽ.",
+                "Tuyệt vời, sẽ quay lại lần sau!"
+              ][(parseInt(tech.id) + i) % 5];
+
+              await queryRunner.query(
+                `INSERT INTO reviews (customer_id, booking_id, branch_id, service_id, technician_id, rating, comment, status, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', NOW(), NOW())`,
+                [customerId, bookingId, branch.id, serviceId, tech.id, rating, comment]
+              );
             }
           }
         }
