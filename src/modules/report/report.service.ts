@@ -8,6 +8,7 @@ import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { Payment } from 'src/modules/payment/entities/payment.entity';
 import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
+import { InventoryTransactionType } from 'src/modules/inventory/enums/inventory-transaction-type.enum';
 import { User } from 'src/modules/user/entities/user.entity';
 import { Service as ServiceEntity } from 'src/modules/service/entities/service.entity';
 import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
@@ -153,9 +154,14 @@ export class ReportService {
 
   // UC36 — Owner: cross-branch revenue dashboard
   async getRevenueDashboard(from: Date, to: Date, granularity: TrendGranularity): Promise<RevenueDashboardDto> {
-    const [byBranch, trend] = await Promise.all([this.queryByBranch(from, to), this.queryTrend(from, to, granularity)]);
+    const [byBranch, trend, totalMaterialCost] = await Promise.all([
+      this.queryByBranch(from, to),
+      this.queryTrend(from, to, granularity),
+      this.queryMaterialCost(from, to),
+    ]);
 
     const totalRevenue = byBranch.reduce((s, b) => s + b.totalRevenue, 0);
+    const systemProfit = totalRevenue - totalMaterialCost;
     const totalCompletedBookings = byBranch.reduce((s, b) => s + b.completedBookings, 0);
     const totalCancelledBookings = byBranch.reduce((s, b) => s + b.cancelledBookings, 0);
     const averageBookingValue = totalCompletedBookings > 0 ? totalRevenue / totalCompletedBookings : null;
@@ -168,13 +174,31 @@ export class ReportService {
       // TODO: replace with real profit (totalRevenue - costs) once cost tracking exists
       // (e.g. inventory unit cost, staff commission/payroll, overhead). For now this
       // is a placeholder equal to totalRevenue, per product decision.
-      systemProfit: Math.round(totalRevenue * 100) / 100,
+      systemProfit: Math.round(systemProfit * 100) / 100,
+      totalMaterialCost: Math.round(totalMaterialCost * 100) / 100,
+      profitMargin: totalRevenue > 0 ? Math.round((systemProfit / totalRevenue) * 10000) / 100 : null,
       totalCompletedBookings,
       totalCancelledBookings,
       averageBookingValue: averageBookingValue != null ? Math.round(averageBookingValue * 100) / 100 : null,
       byBranch,
       trend,
     };
+  }
+
+  private async queryMaterialCost(from: Date, to: Date): Promise<number> {
+    const raw = (await this.bookingRepo.query(
+      `
+        SELECT COALESCE(SUM(ABS(tx.quantity_delta) * ii.unit_cost), 0) AS "totalMaterialCost"
+        FROM inventory_transactions tx
+               INNER JOIN inventory_items ii ON ii.id = tx.inventory_item_id
+        WHERE tx.transaction_type = $3
+          AND tx.created_at >= $1
+          AND tx.created_at <= $2
+      `,
+      [from, to, InventoryTransactionType.Consume],
+    )) as Array<{ totalMaterialCost?: string }>;
+
+    return parseFloat(raw[0]?.totalMaterialCost ?? '0');
   }
 
   private async queryByBranch(from: Date, to: Date): Promise<BranchRevenueSummaryDto[]> {

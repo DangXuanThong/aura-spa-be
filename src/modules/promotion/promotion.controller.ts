@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -81,6 +81,16 @@ export class PromotionController {
   }
 
   // ── UC35: Owner — discount code management ───────────────────────────────
+
+  @Get('eligible-codes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Customer)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Discount codes currently available to the authenticated customer' })
+  @ApiQuery({ name: 'branchId', type: String, required: false })
+  async findEligibleCodes(@Request() req: any, @Query('branchId') branchId?: string): Promise<any[]> {
+    return this.promotionService.findEligibleCodesForCustomer(req.user.id, branchId);
+  }
 
   @Get(':id/discount-codes')
   @UseGuards(JwtAuthGuard, RolesGuard)

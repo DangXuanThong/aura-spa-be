@@ -3,12 +3,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { Promotion } from './entities/promotion.entity';
 import { DiscountCode } from './entities/discount-code.entity';
+import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
+import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
 import { CreatePromotionDto } from './dto/create-promotion.dto';
 import { UpdatePromotionDto } from './dto/update-promotion.dto';
 import { CreateDiscountCodeDto } from './dto/create-discount-code.dto';
 import { UpdateDiscountCodeDto } from './dto/update-discount-code.dto';
 import { PromotionStatus } from './enums/promotion-status.enum';
 import { DiscountType } from './enums/discount-type.enum';
+import { DiscountCodeStatus } from './enums/discount-code-status.enum';
+
+const CUSTOMER_TIER_ORDER = ['Aura Member', 'Aura Gold', 'Aura Platinum'];
 
 @Injectable()
 export class PromotionService {
@@ -17,6 +23,10 @@ export class PromotionService {
     private readonly repo: Repository<Promotion>,
     @InjectRepository(DiscountCode)
     private readonly codeRepo: Repository<DiscountCode>,
+    @InjectRepository(LoyaltyAccount)
+    private readonly loyaltyAccountRepo: Repository<LoyaltyAccount>,
+    @InjectRepository(Booking)
+    private readonly bookingRepo: Repository<Booking>,
   ) {}
 
   async create(dto: CreatePromotionDto): Promise<Promotion> {
@@ -66,6 +76,54 @@ export class PromotionService {
     }
 
     return query.orderBy('p.startsAt', 'ASC').take(200).getMany();
+  }
+
+  async findEligibleCodesForCustomer(customerId: string, branchId?: string): Promise<any[]> {
+    const now = new Date();
+    const account = await this.loyaltyAccountRepo.findOne({ where: { customerId } });
+    const customerTier = account?.tier ?? 'Aura Member';
+    const pointsBalance = account?.pointsBalance ?? 0;
+    const previousBookings = await this.bookingRepo
+      .createQueryBuilder('booking')
+      .where('booking.customerId = :customerId', { customerId })
+      .andWhere('booking.status NOT IN (:...excludedStatuses)', {
+        excludedStatuses: [BookingStatus.Cancelled, BookingStatus.Rescheduled],
+      })
+      .getCount();
+
+    const codes = await this.codeRepo
+      .createQueryBuilder('dc')
+      .innerJoinAndSelect('dc.promotion', 'p')
+      .where('dc.status = :codeStatus', { codeStatus: DiscountCodeStatus.Active })
+      .andWhere('p.status = :promotionStatus', { promotionStatus: PromotionStatus.Active })
+      .andWhere('p.startsAt <= :now', { now })
+      .andWhere('p.endsAt >= :now', { now })
+      .andWhere(branchId ? '(p.branchId IS NULL OR p.branchId = :branchId)' : '1=1', { branchId })
+      .orderBy('p.startsAt', 'ASC')
+      .take(100)
+      .getMany();
+
+    return codes
+      .filter((code) => this.isEligibleForPromotion(code.promotion!, customerTier, pointsBalance, previousBookings))
+      .map((code) => {
+        const promotion = code.promotion!;
+        return {
+          id: code.id,
+          code: code.code,
+          promotionId: promotion.id,
+          promotionName: promotion.name,
+          description: promotion.description,
+          branchId: promotion.branchId,
+          discountType: promotion.discountType,
+          discountValue: promotion.discountValue,
+          maxDiscountAmount: promotion.maxDiscountAmount,
+          minOrderAmount: promotion.minOrderAmount,
+          eligibleCustomerTier: promotion.eligibleCustomerTier,
+          minPointsBalance: promotion.minPointsBalance,
+          firstBookingOnly: promotion.firstBookingOnly,
+          endsAt: promotion.endsAt,
+        };
+      });
   }
 
   async findOne(id: string): Promise<Promotion> {
@@ -167,5 +225,20 @@ export class PromotionService {
     const discountCode = await this.codeRepo.findOne({ where: { id: codeId, promotionId } });
     if (!discountCode) throw new NotFoundException(`Discount code ${codeId} not found for this promotion`);
     return discountCode;
+  }
+
+  private isEligibleForPromotion(promotion: Promotion, customerTier: string, pointsBalance: number, previousBookings: number): boolean {
+    if (promotion.eligibleCustomerTier && !this.isTierAtLeast(customerTier, promotion.eligibleCustomerTier)) return false;
+    if (promotion.minPointsBalance !== null && promotion.minPointsBalance !== undefined && pointsBalance < promotion.minPointsBalance) return false;
+    if (promotion.firstBookingOnly && previousBookings > 0) return false;
+    return true;
+  }
+
+  private isTierAtLeast(customerTier: string, requiredTier: string): boolean {
+    const customerRank = CUSTOMER_TIER_ORDER.indexOf(customerTier);
+    const requiredRank = CUSTOMER_TIER_ORDER.indexOf(requiredTier);
+    if (requiredRank === -1) return true;
+    if (customerRank === -1) return false;
+    return customerRank >= requiredRank;
   }
 }

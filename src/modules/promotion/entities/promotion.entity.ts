@@ -51,6 +51,15 @@ export class Promotion {
   @Column({ name: 'usage_limit_per_customer', type: 'int', nullable: true })
   usageLimitPerCustomer!: number | null;
 
+  @Column({ name: 'eligible_customer_tier', type: 'varchar', length: 50, nullable: true })
+  eligibleCustomerTier!: string | null;
+
+  @Column({ name: 'min_points_balance', type: 'int', nullable: true })
+  minPointsBalance!: number | null;
+
+  @Column({ name: 'first_booking_only', type: 'boolean', default: false, nullable: false })
+  firstBookingOnly!: boolean;
+
   @Column({ name: 'used_count', type: 'int', default: 0, nullable: false })
   usedCount!: number;
 

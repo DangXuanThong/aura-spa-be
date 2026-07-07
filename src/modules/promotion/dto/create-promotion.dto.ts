@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 import { DiscountType } from '../enums/discount-type.enum';
 import { PromotionStatus } from '../enums/promotion-status.enum';
 
@@ -58,6 +58,22 @@ export class CreatePromotionDto {
   @IsInt()
   @Min(1)
   usageLimitPerCustomer?: number;
+
+  @ApiPropertyOptional({ example: 'Aura Gold', description: 'Minimum membership tier required. Omit for all customers.' })
+  @IsOptional()
+  @IsString()
+  eligibleCustomerTier?: string;
+
+  @ApiPropertyOptional({ example: 1000, description: 'Minimum current loyalty points balance required.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minPointsBalance?: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Only customers with no previous non-cancelled bookings can use this promotion.' })
+  @IsOptional()
+  @IsBoolean()
+  firstBookingOnly?: boolean;
 
   @ApiProperty({ example: '2025-06-01T00:00:00.000Z' })
   @IsDateString()

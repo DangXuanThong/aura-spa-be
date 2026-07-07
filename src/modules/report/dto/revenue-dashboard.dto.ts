@@ -61,6 +61,12 @@ export class RevenueDashboardDto {
   })
   systemProfit!: number;
 
+  @ApiProperty({ example: 27000.0, description: 'Material cost calculated from consumed inventory quantity multiplied by item unitCost.' })
+  totalMaterialCost!: number;
+
+  @ApiPropertyOptional({ example: 78.4, description: 'System profit margin percentage; null when revenue is zero.' })
+  profitMargin!: number | null;
+
   @ApiProperty({ example: 120 })
   totalCompletedBookings!: number;
 

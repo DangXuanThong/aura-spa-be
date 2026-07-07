@@ -36,6 +36,15 @@ export class PromotionResponseDto {
   @ApiPropertyOptional({ example: 1 })
   usageLimitPerCustomer!: number | null;
 
+  @ApiPropertyOptional({ example: 'Aura Gold', description: 'Minimum membership tier required' })
+  eligibleCustomerTier!: string | null;
+
+  @ApiPropertyOptional({ example: 1000, description: 'Minimum current loyalty points balance required' })
+  minPointsBalance!: number | null;
+
+  @ApiProperty({ example: false })
+  firstBookingOnly!: boolean;
+
   @ApiProperty({ example: 42 })
   usedCount!: number;
 
