@@ -65,6 +65,7 @@ export class MailService {
   }
 
   private buildWelcomeEmailHtml(fullName: string, email: string, password: string): string {
+    /* eslint-disable max-len */
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px;">
         <h2 style="color: #8B7355;">Chào mừng đến với Aura Spa, ${fullName}!</h2>
@@ -79,6 +80,7 @@ export class MailService {
         </p>
       </div>
     `;
+    /* eslint-enable max-len */
   }
 
   private buildOtpEmailHtml(otp: string): string {

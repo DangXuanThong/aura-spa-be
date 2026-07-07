@@ -25,4 +25,9 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'WELCOME2026', description: 'Discount or promotional code to apply at booking time' })
+  @IsOptional()
+  @IsString()
+  discountCode?: string;
 }

@@ -503,9 +503,10 @@ export class SeederService implements OnApplicationBootstrap {
                 const rating = seedRatings[i];
 
                 const bookingRes = await queryRunner.query(
-                  // eslint-disable-next-line max-len
+                  /* eslint-disable max-len */
                   `INSERT INTO bookings (customer_id, branch_id, technician_id, start_time, end_time, status, source, subtotal_amount, discount_amount, deposit_required_amount, paid_amount, remaining_amount, created_at, updated_at)
                    VALUES ($1, $2, $3, NOW() - INTERVAL '1 day', NOW() - INTERVAL '23 hours', 'completed', 'online', 100000, 0, 0, 100000, 0, NOW(), NOW())RETURNING id`,
+                  /* eslint-enable max-len */
                   [customerId, branch.id, tech.id],
                 );
                 const bookingId = bookingRes[0].id;
