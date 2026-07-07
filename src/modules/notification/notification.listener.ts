@@ -123,9 +123,7 @@ export class NotificationListener {
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_cancelled',
-      message: detail
-        ? `Lịch hẹn ${detail.serviceName} lúc ${detail.startLabel} đã được hủy.`
-        : 'Lịch hẹn của bạn đã được hủy.',
+      message: detail ? `Lịch hẹn ${detail.serviceName} lúc ${detail.startLabel} đã được hủy.` : 'Lịch hẹn của bạn đã được hủy.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -139,6 +137,7 @@ export class NotificationListener {
         const notif = await this.notificationService.create({
           recipientUserId: userId,
           notificationType: 'booking_cancelled',
+          // eslint-disable-next-line max-len
           message: `Lịch bị hủy: ${this.bookingDetailMessage(detail, 'Một lịch hẹn vừa bị hủy tại chi nhánh.')}${payload.reason ? ` Lý do: ${payload.reason}` : ''}`,
           channel: NotificationChannel.InApp,
           relatedEntityType: 'booking',
@@ -171,9 +170,7 @@ export class NotificationListener {
     const customerNotif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'booking_rescheduled',
-      message: detail
-        ? `Lịch hẹn ${detail.serviceName} đã được đổi sang ${detail.startLabel}.`
-        : 'Lịch hẹn của bạn đã được đổi sang thời gian mới.',
+      message: detail ? `Lịch hẹn ${detail.serviceName} đã được đổi sang ${detail.startLabel}.` : 'Lịch hẹn của bạn đã được đổi sang thời gian mới.',
       channel: NotificationChannel.InApp,
       relatedEntityType: 'booking',
       relatedEntityId: payload.bookingId,
@@ -233,10 +230,7 @@ export class NotificationListener {
     this.gateway.sendToUser(payload.customerId, customerNotif);
 
     const branchUserIds = Array.from(
-      new Set([
-        ...(await this.getActiveBranchUserIds(payload.sourceBranchId)),
-        ...(await this.getActiveBranchUserIds(payload.targetBranchId)),
-      ]),
+      new Set([...(await this.getActiveBranchUserIds(payload.sourceBranchId)), ...(await this.getActiveBranchUserIds(payload.targetBranchId))]),
     );
     await Promise.all(
       branchUserIds.map(async (userId) => {
@@ -429,6 +423,7 @@ export class NotificationListener {
       payload.reason === 'internal_account'
         ? `số điện thoại này đang thuộc tài khoản ${roleLabelByValue[payload.conflictingRole] ?? 'nội bộ'}`
         : `tài khoản khách hàng dùng số này ${statusLabelByValue[payload.conflictingStatus] ?? 'không còn hoạt động'}`;
+    // eslint-disable-next-line max-len
     const message = `Không thể tạo lịch vãng lai cho khách ${payload.customerName} (${payload.customerPhone}) vì ${reasonText}. Vui lòng kiểm tra lại hoặc dùng số điện thoại khác.`;
 
     await Promise.all(
@@ -540,7 +535,13 @@ export class NotificationListener {
   }
 
   @OnEvent(COMPLAINT_EVENTS.RESOLVED)
-  async handleComplaintResolved(payload: { complaintId: string; customerId: string; branchId: string; title: string; resolutionNote?: string | null }) {
+  async handleComplaintResolved(payload: {
+    complaintId: string;
+    customerId: string;
+    branchId: string;
+    title: string;
+    resolutionNote?: string | null;
+  }) {
     const notif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'complaint_resolved',
@@ -562,7 +563,13 @@ export class NotificationListener {
   }
 
   @OnEvent(COMPLAINT_EVENTS.REJECTED)
-  async handleComplaintRejected(payload: { complaintId: string; customerId: string; branchId: string; title: string; resolutionNote?: string | null }) {
+  async handleComplaintRejected(payload: {
+    complaintId: string;
+    customerId: string;
+    branchId: string;
+    title: string;
+    resolutionNote?: string | null;
+  }) {
     const notif = await this.notificationService.create({
       recipientUserId: payload.customerId,
       notificationType: 'complaint_rejected',

@@ -43,7 +43,7 @@ export class BranchStaffService {
       order: { createdAt: 'ASC' },
     });
 
-    const staffIds = assignments.map(a => a.userId);
+    const staffIds = assignments.map((a) => a.userId);
     const ratingsMap = new Map<string, number>();
 
     if (staffIds.length > 0) {
@@ -59,10 +59,10 @@ export class BranchStaffService {
       }
     }
 
-    return assignments.map(a => {
+    return assignments.map((a) => {
       const avgRating = ratingsMap.get(a.userId);
       return Object.assign(a, {
-        rating: avgRating !== undefined ? Math.round(avgRating * 10) / 10 : null
+        rating: avgRating !== undefined ? Math.round(avgRating * 10) / 10 : null,
       });
     });
   }
@@ -174,14 +174,9 @@ export class BranchStaffService {
       Booking,
       {
         technicianId: userId,
-        status: In([
-          BookingStatus.PendingPayment,
-          BookingStatus.Confirmed,
-          BookingStatus.CheckedIn,
-          BookingStatus.InService,
-        ]),
+        status: In([BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService]),
       },
-      { technicianId: null }
+      { technicianId: null },
     );
 
     return this.loadAssignment(branchId, userId);
@@ -308,6 +303,7 @@ export class BranchStaffService {
     });
     if (activeManagerAtTarget) {
       throw new ConflictException(
+        // eslint-disable-next-line max-len
         `Chi nhánh đích đã có manager đang hoạt động (${activeManagerAtTarget.user?.fullName ?? activeManagerAtTarget.userId}). Vô hiệu hóa họ trước rồi mới chuyển.`,
       );
     }
