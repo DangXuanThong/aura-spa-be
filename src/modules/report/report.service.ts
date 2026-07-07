@@ -165,6 +165,10 @@ export class ReportService {
       periodTo: to,
       granularity,
       totalRevenue: Math.round(totalRevenue * 100) / 100,
+      // TODO: replace with real profit (totalRevenue - costs) once cost tracking exists
+      // (e.g. inventory unit cost, staff commission/payroll, overhead). For now this
+      // is a placeholder equal to totalRevenue, per product decision.
+      systemProfit: Math.round(totalRevenue * 100) / 100,
       totalCompletedBookings,
       totalCancelledBookings,
       averageBookingValue: averageBookingValue != null ? Math.round(averageBookingValue * 100) / 100 : null,
@@ -186,16 +190,16 @@ export class ReportService {
             AND paid_at <= $2
           GROUP BY branch_id
         ),
-        booking_stats AS (
-          SELECT
-            branch_id,
-            COUNT(CASE WHEN status = $5 THEN 1 END) AS completed_bookings,
-            COUNT(CASE WHEN status = $6 THEN 1 END) AS cancelled_bookings
-          FROM bookings
-          WHERE start_time >= $1
-            AND start_time <= $2
-          GROUP BY branch_id
-        )
+             booking_stats AS (
+               SELECT
+                 branch_id,
+                 COUNT(CASE WHEN status = $5 THEN 1 END) AS completed_bookings,
+                 COUNT(CASE WHEN status = $6 THEN 1 END) AS cancelled_bookings
+               FROM bookings
+               WHERE start_time >= $1
+                 AND start_time <= $2
+               GROUP BY branch_id
+             )
         SELECT
           br.id AS "branchId",
           br.name AS "branchName",
@@ -204,23 +208,16 @@ export class ReportService {
           COALESCE(bs.cancelled_bookings, 0) AS "cancelledBookings",
           CASE
             WHEN COALESCE(bs.completed_bookings, 0) > 0
-            THEN COALESCE(ps.total_revenue, 0) / bs.completed_bookings
+              THEN COALESCE(ps.total_revenue, 0) / bs.completed_bookings
             ELSE NULL
-          END AS "averageBookingValue"
+            END AS "averageBookingValue"
         FROM branches br
-        LEFT JOIN payment_stats ps ON ps.branch_id = br.id
-        LEFT JOIN booking_stats bs ON bs.branch_id = br.id
+               LEFT JOIN payment_stats ps ON ps.branch_id = br.id
+               LEFT JOIN booking_stats bs ON bs.branch_id = br.id
         WHERE ps.branch_id IS NOT NULL OR bs.branch_id IS NOT NULL
         ORDER BY COALESCE(ps.total_revenue, 0) DESC
       `,
-      [
-        from,
-        to,
-        PaymentStatus.Paid,
-        PaymentStatus.PartiallyRefunded,
-        BookingStatus.Completed,
-        BookingStatus.Cancelled,
-      ],
+      [from, to, PaymentStatus.Paid, PaymentStatus.PartiallyRefunded, BookingStatus.Completed, BookingStatus.Cancelled],
     )) as Record<string, string>[];
 
     return rows.map((r) => ({
@@ -246,22 +243,22 @@ export class ReportService {
             AND paid_at <= $2
           GROUP BY DATE_TRUNC('${granularity}', paid_at)
         ),
-        booking_trend AS (
-          SELECT
-            DATE_TRUNC('${granularity}', start_time) AS period,
-            COUNT(*) AS completed_bookings
-          FROM bookings
-          WHERE status = $5
-            AND start_time >= $1
-            AND start_time <= $2
-          GROUP BY DATE_TRUNC('${granularity}', start_time)
-        )
+             booking_trend AS (
+               SELECT
+                 DATE_TRUNC('${granularity}', start_time) AS period,
+                 COUNT(*) AS completed_bookings
+               FROM bookings
+               WHERE status = $5
+                 AND start_time >= $1
+                 AND start_time <= $2
+               GROUP BY DATE_TRUNC('${granularity}', start_time)
+             )
         SELECT
           COALESCE(pt.period, bt.period) AS period,
           COALESCE(pt.revenue, 0) AS revenue,
           COALESCE(bt.completed_bookings, 0) AS "completedBookings"
         FROM payment_trend pt
-        FULL OUTER JOIN booking_trend bt ON bt.period = pt.period
+               FULL OUTER JOIN booking_trend bt ON bt.period = pt.period
         ORDER BY COALESCE(pt.period, bt.period) ASC
       `,
       [from, to, PaymentStatus.Paid, PaymentStatus.PartiallyRefunded, BookingStatus.Completed],
@@ -287,11 +284,7 @@ export class ReportService {
     const bookingRows = await this.bookingRepo
       .createQueryBuilder('b')
       .innerJoin(User, 'u', 'u.id = b.technicianId')
-      .leftJoin(
-        Payment,
-        'p',
-        'p.booking_id = b.id AND p.status IN (:...paymentStatuses) AND p.paid_at >= :from AND p.paid_at <= :to',
-      )
+      .leftJoin(Payment, 'p', 'p.booking_id = b.id AND p.status IN (:...paymentStatuses) AND p.paid_at >= :from AND p.paid_at <= :to')
       .select('b.technicianId', 'staffId')
       .addSelect('u.fullName', 'staffName')
       .addSelect('COUNT(b.id)', 'completedServices')
@@ -383,16 +376,16 @@ export class ReportService {
             AND paid_at <= $2
           GROUP BY branch_id
         ),
-        booking_stats AS (
-          SELECT
-            branch_id,
-            COUNT(CASE WHEN status = $5 THEN 1 END) AS completed_bookings,
-            COUNT(CASE WHEN status = $6 THEN 1 END) AS cancelled_bookings
-          FROM bookings
-          WHERE start_time >= $1
-            AND start_time <= $2
-          GROUP BY branch_id
-        )
+             booking_stats AS (
+               SELECT
+                 branch_id,
+                 COUNT(CASE WHEN status = $5 THEN 1 END) AS completed_bookings,
+                 COUNT(CASE WHEN status = $6 THEN 1 END) AS cancelled_bookings
+               FROM bookings
+               WHERE start_time >= $1
+                 AND start_time <= $2
+               GROUP BY branch_id
+             )
         SELECT
           br.id AS "branchId",
           br.name AS "branchName",
@@ -401,25 +394,17 @@ export class ReportService {
           COALESCE(bs.cancelled_bookings, 0) AS "cancelledBookings",
           CASE
             WHEN COALESCE(bs.completed_bookings, 0) > 0
-            THEN COALESCE(ps.total_revenue, 0) / bs.completed_bookings
+              THEN COALESCE(ps.total_revenue, 0) / bs.completed_bookings
             ELSE NULL
-          END AS "averageBookingValue"
+            END AS "averageBookingValue"
         FROM branches br
-        LEFT JOIN payment_stats ps ON ps.branch_id = br.id
-        LEFT JOIN booking_stats bs ON bs.branch_id = br.id
+               LEFT JOIN payment_stats ps ON ps.branch_id = br.id
+               LEFT JOIN booking_stats bs ON bs.branch_id = br.id
         WHERE ps.branch_id IS NOT NULL OR bs.branch_id IS NOT NULL
         ORDER BY COALESCE(ps.total_revenue, 0) DESC
-        LIMIT $7
+          LIMIT $7
       `,
-      [
-        from,
-        to,
-        PaymentStatus.Paid,
-        PaymentStatus.PartiallyRefunded,
-        BookingStatus.Completed,
-        BookingStatus.Cancelled,
-        limit,
-      ],
+      [from, to, PaymentStatus.Paid, PaymentStatus.PartiallyRefunded, BookingStatus.Completed, BookingStatus.Cancelled, limit],
     )) as Record<string, string>[];
 
     const rankings: BranchRankingItemDto[] = rows.map((r, i) => ({
@@ -476,7 +461,7 @@ export class ReportService {
        FROM staff_schedules
        WHERE branch_id = $1 AND schedule_type = 'working' AND status = 'active'
          AND start_time <= $2 AND end_time >= $2`,
-      [branchId, now]
+      [branchId, now],
     );
     const activeStaffCount = parseInt(activeStaffCountRaw?.[0]?.count || '0', 10);
 
@@ -485,7 +470,7 @@ export class ReportService {
       `SELECT COUNT(id) AS "count"
        FROM complaints
        WHERE branch_id = $1 AND status IN ('open', 'in_progress')`,
-      [branchId]
+      [branchId],
     );
     const openComplaintsCount = parseInt(openComplaintsCountRaw?.[0]?.count || '0', 10);
 
