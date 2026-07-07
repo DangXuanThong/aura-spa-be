@@ -34,6 +34,9 @@ export class UserProfileDto {
   @ApiProperty({ example: null, nullable: true })
   address!: string | null;
 
+  @ApiProperty({ example: true })
+  notificationEnabled!: boolean;
+
   @ApiProperty({ example: '1', nullable: true, required: false })
   branchId?: string | null;
 

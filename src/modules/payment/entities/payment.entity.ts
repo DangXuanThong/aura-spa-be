@@ -83,6 +83,10 @@ export class Payment {
   @Column({ name: 'received_by', type: 'bigint', nullable: true })
   receivedBy!: string | null;
 
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'received_by' })
+  receivedByUser?: User;
+
   @Column({ name: 'refunded_amount', type: 'decimal', precision: 10, scale: 2, default: 0, nullable: false })
   refundedAmount!: number;
 

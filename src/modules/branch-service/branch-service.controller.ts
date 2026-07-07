@@ -1,6 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiCreatedResponse, ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiCreatedResponse, ApiBearerAuth, ApiOkResponse, ApiTags, ApiForbiddenResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/common/guards/roles.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { UserRole } from '../user/enums/user-role.enum';
 import { BranchServiceService } from './branch-service.service';
 import { CreateBranchServiceDto } from './dto/create-branch-service.dto';
 import { UpdateBranchServiceDto } from './dto/update-branch-service.dto';
@@ -13,7 +17,11 @@ export class BranchServiceController {
   constructor(private readonly branchServiceService: BranchServiceService) {}
 
   @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner, UserRole.Manager)
   @ApiCreatedResponse({ description: 'Branch-Service created successfully', type: BranchServiceResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner or Manager role required' })
   async create(@Body() createBranchServiceDto: CreateBranchServiceDto): Promise<BranchServiceResponseDto> {
     const result = await this.branchServiceService.create(createBranchServiceDto);
     return plainToInstance(BranchServiceResponseDto, result);
@@ -55,20 +63,32 @@ export class BranchServiceController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner, UserRole.Manager)
   @ApiOkResponse({ description: 'Branch-Service updated successfully', type: BranchServiceResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner or Manager role required' })
   async update(@Param('id') id: string, @Body() updateBranchServiceDto: UpdateBranchServiceDto): Promise<BranchServiceResponseDto> {
     const result = await this.branchServiceService.update(id, updateBranchServiceDto);
     return plainToInstance(BranchServiceResponseDto, result);
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner, UserRole.Manager)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner or Manager role required' })
   async remove(@Param('id') id: string): Promise<void> {
     return this.branchServiceService.remove(id);
   }
 
   @Delete('branch/:branchId/service/:serviceId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner, UserRole.Manager)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner or Manager role required' })
   async removeByBranchAndService(@Param('branchId') branchId: string, @Param('serviceId') serviceId: string): Promise<void> {
     return this.branchServiceService.removeByBranchAndService(branchId, serviceId);
   }

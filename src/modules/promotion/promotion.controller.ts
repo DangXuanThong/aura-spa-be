@@ -140,11 +140,10 @@ export class PromotionController {
   // ── Public: read-only routes (UC07 — Guest View Promotions) ─────────────
 
   @Get()
-  @ApiOkResponse({ description: 'List of promotions. No status filter = currently active only.', type: [PromotionResponseDto] })
-  @ApiQuery({ name: 'status', enum: PromotionStatus, enumName: 'PromotionStatus', required: false })
+  @ApiOkResponse({ description: 'Currently active promotions (status=Active, within date range). Status filter is not available to guests.', type: [PromotionResponseDto] })
   @ApiQuery({ name: 'branchId', type: String, required: false, description: 'Filter to system-wide + specific branch' })
-  async findAll(@Query('status') status?: PromotionStatus, @Query('branchId') branchId?: string): Promise<PromotionResponseDto[]> {
-    const results = await this.promotionService.findAll(status, branchId);
+  async findAll(@Query('branchId') branchId?: string): Promise<PromotionResponseDto[]> {
+    const results = await this.promotionService.findAll(undefined, branchId);
     return plainToInstance(PromotionResponseDto, results);
   }
 

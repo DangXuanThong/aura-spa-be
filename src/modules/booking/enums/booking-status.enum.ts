@@ -3,6 +3,7 @@ export enum BookingStatus {
   Confirmed = 'confirmed',
   CheckedIn = 'checked_in',
   InService = 'in_service',
+  ServiceCompleted = 'service_completed',
   Completed = 'completed',
   Cancelled = 'cancelled',
   NoShow = 'no_show',

@@ -75,10 +75,10 @@ const SERVICE_PRESENTATION_OVERRIDES: Record<string, Partial<Service>> = {
     defaultPrice: 1050000,
   },
   'SVC-NAIL-001': {
-    name: 'Tẩy Tế Bào Chết Muối Biển & Cà Phê',
-    slug: 'tay-te-bao-chet-muoi-bien-ca-phe',
+    name: 'Tẩy Tế Bào Chết Muối Biển',
+    slug: 'tay-te-bao-chet-muoi-bien',
     category: 'Body',
-    description: 'Làm mịn da và kích thích tái tạo tế bào mới với muối biển hạt mịn và cà phê Đắk Lắk.',
+    description: 'Làm mịn da và kích thích tái tạo tế bào mới với muối biển hạt mịn.',
     imageUrl: WELLNESS_IMAGE,
     defaultDurationMinutes: 45,
     defaultPrice: 850000,
@@ -176,6 +176,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.complaintSeeder.seed();
     await this.scheduleSeeder.seed();
     await this.performanceDataSeeder.seed();
+    await this.seedDynamicRostersAndReviews();
   }
 
   // ── Owner ────────────────────────────────────────────────────────────────
@@ -316,7 +317,7 @@ export class SeederService implements OnApplicationBootstrap {
     let seeded = 0;
 
     for (const s of SERVICES) {
-      const exists = await this.serviceRepository.findOne({ where: { code: s.code } });
+      const exists = await this.serviceRepository.findOne({ where: [{ code: s.code }, { slug: s.slug }] });
       if (exists) continue;
 
       await this.serviceRepository.save(this.serviceRepository.create(s));
@@ -344,12 +345,196 @@ export class SeederService implements OnApplicationBootstrap {
     for (const [code, presentation] of Object.entries(SERVICE_PRESENTATION_OVERRIDES)) {
       const service = await this.serviceRepository.findOne({ where: { code } });
       if (!service) continue;
+      if (presentation.slug && service.slug === presentation.slug) continue;
 
-      await this.serviceRepository.save({ ...service, ...presentation });
-      updated++;
+      try {
+        await this.serviceRepository.save({ ...service, ...presentation });
+        updated++;
+      } catch (e: any) {
+        const pgCode = e?.code ?? e?.driverError?.code;
+        if (pgCode === '23505') {
+          this.logger.warn(`Skipping presentation update for ${code}: slug already taken by another row`);
+          continue;
+        }
+        throw e;
+      }
     }
 
     if (seeded > 0) this.logger.log(`Seeded ${seeded} presentation service(s)`);
     if (updated > 0) this.logger.log(`Updated ${updated} service presentation record(s)`);
+  }
+
+  private async seedDynamicRostersAndReviews(): Promise<void> {
+    const queryRunner = this.userRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      this.logger.log('Seeding dynamic rosters and reviews for all branches...');
+
+      const pwdRes = await queryRunner.query("SELECT password_hash FROM users WHERE role = 'staff' LIMIT 1");
+      const passwordHash = pwdRes[0]?.password_hash || (await bcrypt.hash('Staff123!', 12));
+
+      const branches = await queryRunner.query('SELECT id, name, code FROM branches');
+      const custRes = await queryRunner.query("SELECT id FROM users WHERE role = 'customer' LIMIT 1");
+      const customerId = custRes[0]?.id;
+      const svcRes = await queryRunner.query('SELECT id FROM services LIMIT 1');
+      const serviceId = svcRes[0]?.id;
+
+      for (const branch of branches) {
+        // 1. Get technicians for this branch
+        const techs = await queryRunner.query(
+          `SELECT u.id, u.email, u.full_name
+           FROM branch_staff bs
+           JOIN users u ON bs.user_id = u.id
+           WHERE bs.branch_id = $1 AND bs.position = 'technician' AND bs.status = 'active'`,
+          [branch.id],
+        );
+
+        const branchLower = branch.code.toLowerCase().replace('-', '');
+        const techNames = [
+          `Tech ${branch.code} A`,
+          `Tech ${branch.code} B`,
+          `Tech ${branch.code} C`,
+          `Tech ${branch.code} D`,
+          `Tech ${branch.code} E`,
+        ];
+
+        const updatedTechs = [...techs];
+
+        while (updatedTechs.length < 5) {
+          const nextIndex = updatedTechs.length;
+          const email = `tech.${branchLower}.${String.fromCharCode(97 + nextIndex)}@demo.auraspa.local`;
+          const fullName = techNames[nextIndex];
+          const phone = `090${branch.id}${nextIndex}12345`;
+
+          let userId;
+          const userExist = await queryRunner.query('SELECT id FROM users WHERE email = $1', [email]);
+          if (userExist.length > 0) {
+            userId = userExist[0].id;
+          } else {
+            const userRes = await queryRunner.query(
+              `INSERT INTO users (email, password_hash, full_name, phone, role, status, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, 'staff', 'active', NOW(), NOW()) RETURNING id`,
+              [email, passwordHash, fullName, phone],
+            );
+            userId = userRes[0].id;
+          }
+
+          const assignExist = await queryRunner.query('SELECT id FROM branch_staff WHERE user_id = $1 AND branch_id = $2', [userId, branch.id]);
+          if (assignExist.length === 0) {
+            await queryRunner.query(
+              `INSERT INTO branch_staff (branch_id, user_id, position, status, staff_code, start_date, created_at, updated_at)
+               VALUES ($1, $2, 'technician', 'active', $3, NOW(), NOW(), NOW())`,
+              [branch.id, userId, `TECH-${branch.code}-${String.fromCharCode(65 + nextIndex)}`],
+            );
+          }
+
+          updatedTechs.push({ id: userId, email, full_name: fullName });
+        }
+
+        // Get manager
+        const mgrRes = await queryRunner.query(
+          "SELECT user_id FROM branch_staff WHERE branch_id = $1 AND position = 'manager' AND status = 'active' LIMIT 1",
+          [branch.id],
+        );
+        const managerId = mgrRes[0]?.user_id || '1';
+
+        // Check if schedules already exist for these techs
+        const scheduleCheck = await queryRunner.query('SELECT COUNT(*) FROM staff_schedules WHERE branch_id = $1', [branch.id]);
+        const scheduleCount = parseInt(scheduleCheck[0].count, 10);
+
+        if (scheduleCount === 0) {
+          // Register shifts from July 4th to July 12th
+          const t1 = updatedTechs[0].id;
+          const t2 = updatedTechs[1].id;
+          const t3 = updatedTechs[2].id;
+          const t4 = updatedTechs[3].id;
+          const t5 = updatedTechs[4].id;
+
+          const insertShift = async (staffId: string, dateStr: string, startHour: number, endHour: number, label: string) => {
+            const start = new Date(`${dateStr}T${startHour.toString().padStart(2, '0')}:00:00+07:00`);
+            const end = new Date(`${dateStr}T${endHour.toString().padStart(2, '0')}:00:00+07:00`);
+
+            const reqRes = await queryRunner.query(
+              // eslint-disable-next-line max-len
+              `INSERT INTO schedule_requests (staff_id, branch_id, request_type, status, requested_start, requested_end, reason, reviewed_by, reviewed_at, created_at, updated_at)
+               VALUES ($1, $2, 'work_shift', 'approved', $3, $4, $5, $6, NOW(), NOW(), NOW()) RETURNING id`,
+              [staffId, branch.id, start, end, label, managerId],
+            );
+            const reqId = reqRes[0].id;
+
+            await queryRunner.query(
+              // eslint-disable-next-line max-len
+              `INSERT INTO staff_schedules (staff_id, branch_id, start_time, end_time, schedule_type, status, source_request_id, created_by, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, 'working', 'active', $5, $6, NOW(), NOW())`,
+              [staffId, branch.id, start, end, reqId, managerId],
+            );
+          };
+
+          for (let dayOffset = 0; dayOffset <= 8; dayOffset++) {
+            const dayNum = (4 + dayOffset).toString().padStart(2, '0');
+            const dateStr = `2026-07-${dayNum}`;
+
+            await insertShift(t1, dateStr, 8, 12, 'Ca sáng T1');
+            await insertShift(t1, dateStr, 13, 20, 'Ca chiều T1');
+            await insertShift(t2, dateStr, 13, 20, 'Ca chiều T2');
+            await insertShift(t3, dateStr, 8, 20, 'Ca gộp T3');
+            await insertShift(t4, dateStr, 8, 20, 'Ca gộp T4');
+            await insertShift(t5, dateStr, 13, 20, 'Ca chiều T5');
+          }
+        }
+
+        // Seed reviews for new techs
+        if (customerId && serviceId) {
+          for (const tech of updatedTechs) {
+            const reviewCheck = await queryRunner.query('SELECT COUNT(*) FROM reviews WHERE technician_id = $1', [tech.id]);
+            const reviewCount = parseInt(reviewCheck[0].count, 10);
+
+            if (reviewCount === 0) {
+              const seedRatings = [
+                [5, 4, 5],
+                [4, 5, 4],
+                [5, 5, 5],
+                [4, 4, 5],
+                [5, 5, 4],
+              ][parseInt(tech.id, 10) % 5];
+
+              for (let i = 0; i < seedRatings.length; i++) {
+                const rating = seedRatings[i];
+
+                const bookingRes = await queryRunner.query(
+                  // eslint-disable-next-line max-len
+                  `INSERT INTO bookings (customer_id, branch_id, technician_id, start_time, end_time, status, source, subtotal_amount, discount_amount, deposit_required_amount, paid_amount, remaining_amount, created_at, updated_at)
+                   VALUES ($1, $2, $3, NOW() - INTERVAL '1 day', NOW() - INTERVAL '23 hours', 'completed', 'online', 100000, 0, 0, 100000, 0, NOW(), NOW())RETURNING id`,
+                  [customerId, branch.id, tech.id],
+                );
+                const bookingId = bookingRes[0].id;
+
+                const comment = [
+                  'Dịch vụ rất tốt, nhân viên thân thiện chu đáo!',
+                  'Kỹ thuật viên tay nghề cao, làm rất êm ái.',
+                  'Rất hài lòng với chất lượng phục vụ tại đây.',
+                  'Nhân viên làm nhiệt tình, chu đáo sạch sẽ.',
+                  'Tuyệt vời, sẽ quay lại lần sau!',
+                ][(parseInt(tech.id, 10) + i) % 5];
+
+                await queryRunner.query(
+                  // eslint-disable-next-line max-len
+                  `INSERT INTO reviews (customer_id, booking_id, branch_id, service_id, technician_id, rating, comment, status, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', NOW(), NOW())`,
+                  [customerId, bookingId, branch.id, serviceId, tech.id, rating, comment],
+                );
+              }
+            }
+          }
+        }
+      }
+
+      this.logger.log('✓ Successfully seeded dynamic rosters and reviews for all branches!');
+    } catch (err) {
+      this.logger.error('Error seeding dynamic rosters and reviews:', err);
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

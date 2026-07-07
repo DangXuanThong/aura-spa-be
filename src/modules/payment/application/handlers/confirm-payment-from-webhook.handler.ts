@@ -1,0 +1,362 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { PAYMENT_EVENTS } from 'src/common/constants/events';
+import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { BookingStatus } from 'src/modules/booking/enums/booking-status.enum';
+import { Payment } from '../../entities/payment.entity';
+import { PaymentMethod } from '../../enums/payment-method.enum';
+import { PaymentStatus } from '../../enums/payment-status.enum';
+import { PaymentType } from '../../enums/payment-type.enum';
+import { Invoice } from '../../entities/invoice.entity';
+import { InvoiceStatus } from '../../enums/invoice-status.enum';
+import { PaymentTransaction } from '../../domain/entities/payment-transaction.entity';
+import { PaymentTransactionStatus } from '../../domain/enums/payment-transaction-status.enum';
+import { PaymentTransactionType } from '../../domain/enums/payment-transaction-type.enum';
+import { Money } from '../../domain/value-objects/money.vo';
+import { ConfirmPaymentFromWebhookCommand } from '../commands/confirm-payment-from-webhook.command';
+import { ReferenceCode } from '../../domain/value-objects/reference-code.vo';
+import { SePayWebhookPayload } from '../../infrastructure/sepay/sepay-webhook-payload.interface';
+import { SepayConfig } from '../../infrastructure/sepay/sepay.config';
+import { LoyaltyService } from 'src/modules/loyalty/loyalty.service';
+
+@Injectable()
+export class ConfirmPaymentFromWebhookHandler {
+  private readonly logger = new Logger(ConfirmPaymentFromWebhookHandler.name);
+
+  constructor(
+    @InjectRepository(PaymentTransaction)
+    private readonly paymentTxRepo: Repository<PaymentTransaction>,
+    @InjectRepository(Booking)
+    private readonly bookingRepo: Repository<Booking>,
+    @InjectRepository(Payment)
+    private readonly paymentRepo: Repository<Payment>,
+    private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly loyaltyService: LoyaltyService,
+  ) {}
+
+  /**
+   * Idempotent webhook processing. Always completes without throwing so the controller
+   * can return {"success": true} per SePay contract.
+   */
+  async execute(command: ConfirmPaymentFromWebhookCommand): Promise<void> {
+    const { payload, rawPayload } = command;
+
+    if (payload.transferType !== 'in') {
+      this.logger.debug(`Ignoring outbound transfer sepay_id=${payload.id}`);
+      return;
+    }
+
+    const sepayId = String(payload.id);
+
+    // Idempotency: same SePay transaction id must not be processed twice.
+    const alreadyProcessed = await this.paymentTxRepo.findOne({
+      where: { sepayTransactionId: sepayId },
+    });
+    if (alreadyProcessed) {
+      this.logger.debug(`Duplicate webhook ignored sepay_id=${sepayId}`);
+      return;
+    }
+
+    const paymentCode = this.resolvePaymentCode(payload);
+    if (!paymentCode) {
+      this.logger.warn(`Webhook missing payment code sepay_id=${sepayId} content="${payload.content}"`);
+      return;
+    }
+
+    let referenceCode: ReferenceCode;
+    try {
+      referenceCode = ReferenceCode.from(paymentCode);
+    } catch {
+      this.logger.warn(`Invalid payment code in webhook sepay_id=${sepayId} code="${paymentCode}"`);
+      return;
+    }
+
+    const pendingTx = await this.paymentTxRepo.findOne({
+      where: {
+        referenceCode: referenceCode.toString(),
+        status: PaymentTransactionStatus.Pending,
+      },
+    });
+
+    if (!pendingTx) {
+      this.logger.warn(`No pending transaction for code=${referenceCode.toString()} sepay_id=${sepayId}`);
+      return;
+    }
+
+    const expectedMoney = Money.vnd(parseFloat(pendingTx.amount as unknown as string));
+    if (!expectedMoney.matchesSePayTransfer(payload.transferAmount)) {
+      this.logger.warn(
+        `Amount mismatch for ${referenceCode.toString()}: expected=${expectedMoney.amount} received=${payload.transferAmount}`,
+      );
+      return;
+    }
+
+    const paidAt = this.parseTransactionDate(payload.transactionDate) ?? new Date();
+    if (pendingTx.expiresAt < paidAt) {
+      await this.paymentTxRepo.update(pendingTx.id, { status: PaymentTransactionStatus.Expired });
+      this.logger.warn(`Payment expired for ${referenceCode.toString()} sepay_id=${sepayId}`);
+      return;
+    }
+
+    if (pendingTx.transactionType === PaymentTransactionType.Deposit) {
+      await this.confirmDepositPayment(pendingTx, referenceCode, expectedMoney, payload, rawPayload, sepayId, paidAt);
+      return;
+    }
+
+    if (pendingTx.transactionType === PaymentTransactionType.FullPayment) {
+      this.logger.log(
+        `Invoice QR transfer received but left for staff confirmation tx=${pendingTx.id} reference=${referenceCode.toString()} sepay_id=${sepayId}`,
+      );
+      return;
+    }
+
+    this.logger.warn(`Unsupported payment transaction type=${pendingTx.transactionType} tx=${pendingTx.id}`);
+  }
+
+  private async confirmDepositPayment(
+    pendingTx: PaymentTransaction,
+    referenceCode: ReferenceCode,
+    expectedMoney: Money,
+    payload: SePayWebhookPayload,
+    rawPayload: Record<string, unknown>,
+    sepayId: string,
+    paidAt: Date,
+  ): Promise<void> {
+    const booking = await this.bookingRepo.findOne({ where: { id: pendingTx.bookingId } });
+    if (!booking || booking.status !== BookingStatus.PendingPayment) {
+      this.logger.warn(
+        `Booking not eligible booking_id=${pendingTx.bookingId} status=${booking?.status ?? 'missing'}`,
+      );
+      return;
+    }
+
+    const depositAmount = expectedMoney.amount;
+    const paidAmount = parseFloat(booking.paidAmount as unknown as string) + depositAmount;
+    const remainingAmount = Math.max(
+      0,
+      parseFloat(booking.subtotalAmount as unknown as string) -
+        parseFloat(booking.discountAmount as unknown as string) -
+        paidAmount,
+    );
+
+    try {
+      const payment = await this.dataSource.transaction(async (manager) => {
+        const lockedTx = await manager.findOne(PaymentTransaction, {
+          where: { id: pendingTx.id, status: PaymentTransactionStatus.Pending },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!lockedTx) {
+          this.logger.debug(`Concurrent webhook skipped for payment_tx=${pendingTx.id}`);
+          return null;
+        }
+
+        lockedTx.status = PaymentTransactionStatus.Paid;
+        lockedTx.sepayTransactionId = sepayId;
+        lockedTx.bankReferenceCode = payload.referenceCode ?? null;
+        lockedTx.transferContent = payload.content;
+        lockedTx.rawWebhookPayload = rawPayload;
+        lockedTx.paidAt = paidAt;
+        await manager.save(lockedTx);
+
+        await manager.update(Booking, booking.id, {
+          status: BookingStatus.Confirmed,
+          paidAmount,
+          remainingAmount,
+        });
+
+        const payment = await manager.save(
+          manager.create(Payment, {
+            bookingId: booking.id,
+            customerId: booking.customerId,
+            branchId: booking.branchId,
+            invoiceId: null,
+            paymentType: PaymentType.Deposit,
+            paymentMethod: PaymentMethod.BankTransfer,
+            status: PaymentStatus.Paid,
+            amount: depositAmount,
+            paidAt,
+            receivedBy: null,
+            refundedAmount: 0,
+            refundReason: null,
+          }),
+        );
+
+        await this.loyaltyService.awardForPayment({
+          customerId: booking.customerId,
+          bookingId: booking.id,
+          paymentId: payment.id,
+          amount: depositAmount,
+          source: 'sepay_deposit',
+          description: `Dat coc lich hen #${booking.id}`,
+          manager,
+        });
+
+        return payment;
+      });
+
+      if (payment) {
+        this.eventEmitter.emit(PAYMENT_EVENTS.DEPOSIT_PAID, {
+          paymentId: payment.id,
+          invoiceId: payment.invoiceId,
+          customerId: payment.customerId,
+          branchId: payment.branchId,
+          amount: Number(payment.amount),
+          paymentType: payment.paymentType,
+        });
+      }
+
+      this.logger.log(
+        `Deposit confirmed booking_id=${booking.id} reference=${referenceCode.toString()} sepay_id=${sepayId}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to confirm payment sepay_id=${sepayId}`, error);
+    }
+  }
+
+  private async confirmInvoicePayment(
+    pendingTx: PaymentTransaction,
+    referenceCode: ReferenceCode,
+    expectedMoney: Money,
+    payload: SePayWebhookPayload,
+    rawPayload: Record<string, unknown>,
+    sepayId: string,
+    paidAt: Date,
+  ): Promise<void> {
+    try {
+      const payment = await this.dataSource.transaction(async (manager) => {
+        const lockedTx = await manager.findOne(PaymentTransaction, {
+          where: { id: pendingTx.id, status: PaymentTransactionStatus.Pending },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!lockedTx) {
+          this.logger.debug(`Concurrent webhook skipped for payment_tx=${pendingTx.id}`);
+          return null;
+        }
+
+        const invoice = await manager.findOne(Invoice, {
+          where: { bookingId: lockedTx.bookingId },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!invoice) {
+          this.logger.warn(`Invoice not found for invoice payment tx=${lockedTx.id} booking_id=${lockedTx.bookingId}`);
+          return null;
+        }
+
+        if (![InvoiceStatus.Issued, InvoiceStatus.PartiallyPaid].includes(invoice.status)) {
+          this.logger.warn(`Invoice not payable invoice_id=${invoice.id} status=${invoice.status}`);
+          return null;
+        }
+
+        const remaining = parseFloat(invoice.remainingAmount as unknown as string);
+        if (expectedMoney.amount > remaining) {
+          this.logger.warn(
+            `Invoice payment exceeds remaining invoice_id=${invoice.id} remaining=${remaining} received=${expectedMoney.amount}`,
+          );
+          return null;
+        }
+
+        lockedTx.status = PaymentTransactionStatus.Paid;
+        lockedTx.sepayTransactionId = sepayId;
+        lockedTx.bankReferenceCode = payload.referenceCode ?? null;
+        lockedTx.transferContent = payload.content;
+        lockedTx.rawWebhookPayload = rawPayload;
+        lockedTx.paidAt = paidAt;
+        await manager.save(lockedTx);
+
+        const invoicePaidBefore = parseFloat(invoice.paidAmount as unknown as string);
+        const totalAmount = parseFloat(invoice.totalAmount as unknown as string);
+        const newPaid = invoicePaidBefore + expectedMoney.amount;
+        const newRemaining = Math.max(0, totalAmount - newPaid);
+        const newStatus = newRemaining <= 0 ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+        const paymentType = invoicePaidBefore > 0 ? PaymentType.RemainingPayment : PaymentType.FullPayment;
+
+        await manager.update(Invoice, invoice.id, {
+          paidAmount: newPaid,
+          remainingAmount: newRemaining,
+          status: newStatus,
+        });
+
+        if (invoice.bookingId) {
+          await manager.update(Booking, invoice.bookingId, {
+            paidAmount: newPaid,
+            remainingAmount: newRemaining,
+          });
+        }
+
+        return manager.save(
+          manager.create(Payment, {
+            bookingId: invoice.bookingId,
+            customerId: invoice.customerId,
+            branchId: invoice.branchId,
+            invoiceId: invoice.id,
+            paymentType,
+            paymentMethod: PaymentMethod.BankTransfer,
+            status: PaymentStatus.Paid,
+            amount: expectedMoney.amount,
+            paidAt,
+            receivedBy: null,
+            refundedAmount: 0,
+            refundReason: null,
+          }),
+        );
+      });
+
+      if (payment) {
+        this.eventEmitter.emit(PAYMENT_EVENTS.PROCESSED, {
+          paymentId: payment.id,
+          invoiceId: payment.invoiceId,
+          customerId: payment.customerId,
+          branchId: payment.branchId,
+          amount: Number(payment.amount),
+          paymentType: payment.paymentType,
+        });
+
+        this.logger.log(
+          `Invoice payment confirmed invoice_id=${payment.invoiceId} reference=${referenceCode.toString()} sepay_id=${sepayId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Failed to confirm invoice payment sepay_id=${sepayId}`, error);
+    }
+  }
+
+  private resolvePaymentCode(payload: SePayWebhookPayload): string | null {
+    const config = this.configService.get<SepayConfig>('sepay', { infer: true });
+    const prefix = (config?.paymentCodePrefix ?? 'ABK').trim().toUpperCase();
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const paymentCodePattern = new RegExp(`\\b${escapedPrefix}\\d{8}\\b`, 'i');
+
+    const fields = [payload.code, payload.content, payload.description].filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    );
+
+    for (const field of fields) {
+      const match = field.match(paymentCodePattern);
+      if (match) {
+        return match[0].toUpperCase();
+      }
+    }
+
+    return null;
+  }
+
+  private parseTransactionDate(value: string | undefined): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized);
+    const parsed = new Date(hasTimezone ? normalized : `${normalized}+07:00`);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+}

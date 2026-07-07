@@ -8,9 +8,14 @@ import { ScheduleController } from './schedule.controller';
 import { ScheduleService } from './schedule.service';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { AuthModule } from 'src/modules/auth/auth.module';
+import { NotificationModule } from 'src/modules/notification/notification.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ScheduleRequest, StaffSchedule, Booking, BranchStaff]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([ScheduleRequest, StaffSchedule, Booking, BranchStaff]),
+    AuthModule,
+    NotificationModule,
+  ],
   controllers: [ScheduleController],
   providers: [ScheduleService, RolesGuard],
   exports: [ScheduleService],

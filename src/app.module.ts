@@ -1,6 +1,8 @@
 import { Injectable, Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { BranchModule } from './modules/branch/branch.module';
@@ -18,8 +20,15 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { ReportModule } from './modules/report/report.module';
 import { databaseConfig } from './config/database.config';
+import { sepayConfig } from './modules/payment/infrastructure/sepay/sepay.config';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { SeederModule } from 'src/database/seeds/seeder.module';
+import { ActivityLogModule } from 'src/modules/activity-log/activity-log.module';
+import { StrategyModule } from 'src/modules/strategy/strategy.module';
+import { NotificationModule } from 'src/modules/notification/notification.module';
+import { CaslModule } from 'src/common/casl/casl.module';
+import { HealthCheckController } from './health-check.controller';
+import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 
 @Injectable()
 class DatabaseHealthLogger implements OnModuleInit {
@@ -38,7 +47,7 @@ class DatabaseHealthLogger implements OnModuleInit {
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig],
+      load: [databaseConfig, sepayConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -47,6 +56,16 @@ class DatabaseHealthLogger implements OnModuleInit {
       },
     }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: config.get<number>('THROTTLE_TTL', 60000),
+          limit: config.get<number>('THROTTLE_LIMIT', 5),
+        },
+      ],
+    }),
+    EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
     UserModule,
     AuthModule,
     BranchModule,
@@ -62,8 +81,14 @@ class DatabaseHealthLogger implements OnModuleInit {
     PaymentModule,
     InventoryModule,
     ReportModule,
+    ActivityLogModule,
+    StrategyModule,
+    NotificationModule,
+    LoyaltyModule,
+    CaslModule,
     SeederModule,
   ],
+  controllers: [HealthCheckController],
   providers: [DatabaseHealthLogger],
 })
 export class AppModule {}

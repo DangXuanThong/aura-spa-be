@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
 import { StaffStatus } from 'src/modules/branch/enums/staff-status.enum';
@@ -33,20 +33,17 @@ export class UserService {
   async getBranchInfo(userId: string): Promise<{ branchId: string | null; branchCode: string | null }> {
     const assignment = await this.branchStaffRepository.findOne({
       where: { userId, status: StaffStatus.Active },
-      relations: { branch: true },
+      relations: ['branch'],
     });
-
-    if (!assignment) return { branchId: null, branchCode: null };
-
-    return {
-      branchId: assignment.branchId,
-      branchCode: assignment.branch?.code ?? null,
-    };
+    if (assignment) {
+      return { branchId: assignment.branchId, branchCode: assignment.branch?.code ?? null };
+    }
+    return { branchId: null, branchCode: null };
   }
 
   async findByEmail(email: string, options?: FindUserByEmailOptions): Promise<User | null> {
     const normalizedEmail = email.trim().toLowerCase();
-    let user: User | null;
+    let user: User | null = null;
 
     if (options?.includePasswordHash) {
       user = await this.userRepository
@@ -58,11 +55,6 @@ export class UserService {
       user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
     }
 
-    if (user && (user.role === 'staff' || user.role === 'manager')) {
-      const branchInfo = await this.getBranchInfo(user.id);
-      user.branchId = branchInfo.branchId;
-      user.branchCode = branchInfo.branchCode;
-    }
     return user;
   }
 
@@ -71,34 +63,25 @@ export class UserService {
   }
 
   async findById(id: string): Promise<User | null> {
-    const user = await this.userRepository.findOne({ where: { id } });
-    if (user && (user.role === 'staff' || user.role === 'manager')) {
-      const branchInfo = await this.getBranchInfo(user.id);
-      user.branchId = branchInfo.branchId;
-      user.branchCode = branchInfo.branchCode;
-    }
-    return user;
+    return this.userRepository.findOne({ where: { id } });
+    // branchId/branchCode are set by JwtStrategy.validate() from the JWT payload — not fetched on every request
   }
 
-  async create(data: CreateUserData, manager?: EntityManager): Promise<User> {
-    const repo = manager ? manager.getRepository(User) : this.userRepository;
-    const user = repo.create(data);
-    return repo.save(user);
+  async create(data: CreateUserData): Promise<User> {
+    const user = this.userRepository.create(data);
+    return this.userRepository.save(user);
   }
 
-  async update(id: string, data: Partial<User>, manager?: EntityManager): Promise<User> {
-    if (!manager) {
-      await this.userRepository.update(id, data);
-      // findById will never return null here since we just updated a known user
-      return (await this.findById(id)) as User;
-    }
-    const repo = manager.getRepository(User);
-    await repo.update(id, data);
-    // repo.findOne will never return null here since we just updated a known user
-    return (await repo.findOne({ where: { id } })) as User;
+  async update(id: string, data: Partial<User>): Promise<User> {
+    // Strip fields that must never change via this method to prevent privilege escalation
+    const { role: _r, id: _i, ...safe } = data as Record<string, unknown>;
+    await this.userRepository.update(id, safe as Partial<User>);
+    // findById will never return null here since we just updated a known user
+    return (await this.findById(id)) as User;
   }
 
   async updateLastLogin(id: string): Promise<void> {
     await this.userRepository.update(id, { lastLoginAt: new Date() });
   }
 }
+

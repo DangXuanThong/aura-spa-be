@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -6,6 +6,7 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -16,12 +17,30 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
 import { UserRole } from 'src/modules/user/enums/user-role.enum';
 import { ReviewService } from './review.service';
 import { CreateReviewDto } from './dto/create-review.dto';
+import { ReplyReviewDto } from './dto/reply-review.dto';
+import { ModerateReviewDto } from './dto/moderate-review.dto';
 import { ReviewResponseDto } from './dto/review-response.dto';
 
 @ApiTags('Reviews')
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
+
+  // ── Public: list published reviews ─────────────────────────────────────────
+
+  @Get()
+  @ApiOkResponse({ description: 'Published reviews, filterable by branch/service/technician', type: [ReviewResponseDto] })
+  @ApiQuery({ name: 'branchId', type: String, required: false })
+  @ApiQuery({ name: 'serviceId', type: String, required: false })
+  @ApiQuery({ name: 'technicianId', type: String, required: false })
+  async findAll(
+    @Query('branchId') branchId?: string,
+    @Query('serviceId') serviceId?: string,
+    @Query('technicianId') technicianId?: string,
+  ): Promise<ReviewResponseDto[]> {
+    const reviews = await this.reviewService.findAll(branchId, serviceId, technicianId);
+    return plainToInstance(ReviewResponseDto, reviews);
+  }
 
   // ── Customer: submit review (UC17 — Submit Service Review) ──────────────────
 
@@ -50,5 +69,33 @@ export class ReviewController {
   async findMine(@Request() req: any): Promise<ReviewResponseDto[]> {
     const reviews = await this.reviewService.findMyReviews(req.user.id);
     return plainToInstance(ReviewResponseDto, reviews);
+  }
+
+  // ── Manager/Owner: reply to a review ────────────────────────────────────────
+
+  @Patch(':id/reply')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Manager, UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Reply submitted', type: ReviewResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Manager or Owner role required' })
+  async replyToReview(@Param('id') id: string, @Body() dto: ReplyReviewDto, @Request() req: any): Promise<ReviewResponseDto> {
+    const review = await this.reviewService.reply(id, dto, req.user.id);
+    return plainToInstance(ReviewResponseDto, review);
+  }
+
+  // ── Owner: moderate a review ─────────────────────────────────────────────────
+
+  @Patch(':id/moderate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.Owner)
+  @ApiBearerAuth('access-token')
+  @ApiOkResponse({ description: 'Review status updated', type: ReviewResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiForbiddenResponse({ description: 'Owner role required' })
+  async moderate(@Param('id') id: string, @Body() dto: ModerateReviewDto): Promise<ReviewResponseDto> {
+    const review = await this.reviewService.moderate(id, dto);
+    return plainToInstance(ReviewResponseDto, review);
   }
 }

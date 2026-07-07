@@ -2,7 +2,7 @@ import * as bcrypt from 'bcryptjs';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, In, Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { BranchStaff } from './entities/branch-staff.entity';
 import { Branch } from './entities/branch.entity';
 import { User } from 'src/modules/user/entities/user.entity';
@@ -15,6 +15,8 @@ import { Gender } from 'src/modules/user/enums/gender.enum';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { CreateManagerDto } from './dto/create-manager.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
+import { TransferManagerDto } from './dto/transfer-manager.dto';
+import { MailService } from 'src/modules/mail/mail.service';
 
 @Injectable()
 export class BranchStaffService {
@@ -26,19 +28,42 @@ export class BranchStaffService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly configService: ConfigService,
-    private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {}
 
   // UC25 — List staff at branch
-  async list(branchId: string, managerId: string, role?: string): Promise<BranchStaff[]> {
+  async list(branchId: string, managerId: string, role?: string): Promise<any[]> {
     if (role !== UserRole.Owner) {
       await this.assertManagerAtBranch(managerId, branchId);
     }
 
-    return this.branchStaffRepo.find({
+    const assignments = await this.branchStaffRepo.find({
       where: { branchId },
       relations: ['user'],
       order: { createdAt: 'ASC' },
+    });
+
+    const staffIds = assignments.map((a) => a.userId);
+    const ratingsMap = new Map<string, number>();
+
+    if (staffIds.length > 0) {
+      const ratingsRaw = await this.branchStaffRepo.query(
+        `SELECT technician_id AS "technicianId", AVG(rating) AS "avgRating"
+         FROM reviews
+         WHERE technician_id IN (${staffIds.map((_, i) => `$${i + 1}`).join(', ')}) AND status = 'published'
+         GROUP BY technician_id`,
+        staffIds,
+      );
+      for (const item of ratingsRaw) {
+        ratingsMap.set(item.technicianId, parseFloat(item.avgRating || '5.0'));
+      }
+    }
+
+    return assignments.map((a) => {
+      const avgRating = ratingsMap.get(a.userId);
+      return Object.assign(a, {
+        rating: avgRating !== undefined ? Math.round(avgRating * 10) / 10 : null,
+      });
     });
   }
 
@@ -61,43 +86,41 @@ export class BranchStaffService {
 
     const count = await this.branchStaffRepo.count({ where: { branchId } });
     const staffCode = `STF-${branch.code}-${String(count + 1).padStart(3, '0')}`;
-    const passwordHash = await bcrypt.hash(this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD'), 12);
+    const rawPassword = this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD');
+    const passwordHash = await bcrypt.hash(rawPassword, 12);
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
 
-    // User + branch_staff assignment must be created together — a user with no
-    // assignment (or vice versa) is an account that's either inaccessible or invisible.
-    return await this.dataSource.transaction(async (manager) => {
-      const user = await manager.save(
-        manager.create(User, {
-          fullName: dto.fullName,
-          email: normalizedEmail,
-          phone: dto.phone ?? null,
-          passwordHash,
-          role: UserRole.Staff,
-          status: UserStatus.Active,
-          authProvider: AuthProvider.Email,
-          gender: dto.gender ?? Gender.Unknown,
-          dateOfBirth: null,
-          address: null,
-          avatarUrl: null,
-        }),
-      );
+    const user = await this.userRepo.save(
+      this.userRepo.create({
+        fullName: dto.fullName,
+        email: normalizedEmail,
+        phone: dto.phone ?? null,
+        passwordHash,
+        role: UserRole.Staff,
+        status: UserStatus.Active,
+        authProvider: AuthProvider.Email,
+        gender: dto.gender ?? Gender.Unknown,
+        dateOfBirth: null,
+        address: null,
+        avatarUrl: null,
+      }),
+    );
 
-      const assignment = await manager.save(
-        manager.create(BranchStaff, {
-          branchId,
-          userId: user.id,
-          staffCode,
-          position: dto.position,
-          status: StaffStatus.Active,
-          startDate,
-          endDate: null,
-        }),
-      );
+    const assignment = await this.branchStaffRepo.save(
+      this.branchStaffRepo.create({
+        branchId,
+        userId: user.id,
+        staffCode,
+        position: dto.position,
+        status: StaffStatus.Active,
+        startDate,
+        endDate: null,
+      }),
+    );
 
-      assignment.user = user;
-      return assignment;
-    });
+    assignment.user = user;
+    void this.mailService.sendWelcomeEmail(normalizedEmail, dto.fullName, rawPassword);
+    return assignment;
   }
 
   // UC25 — Edit staff account / assignment
@@ -111,25 +134,19 @@ export class BranchStaffService {
       if (normalizedEmail !== assignment.user!.email) {
         const conflict = await this.userRepo.findOne({ where: { email: normalizedEmail } });
         if (conflict) throw new ConflictException('A user with this email already exists');
+        await this.userRepo.update(userId, { email: normalizedEmail });
       }
     }
 
     const userUpdates: Partial<User> = {};
-    if (dto.email !== undefined) userUpdates.email = dto.email.trim().toLowerCase();
     if (dto.fullName !== undefined) userUpdates.fullName = dto.fullName;
     if (dto.phone !== undefined) userUpdates.phone = dto.phone;
     if (dto.gender !== undefined) userUpdates.gender = dto.gender;
+    if (Object.keys(userUpdates).length > 0) await this.userRepo.update(userId, userUpdates);
 
-    // The user row and the branch_staff row are two different tables describing the
-    // same edit — both updates need to land, or neither should.
-    await this.dataSource.transaction(async (manager) => {
-      if (Object.keys(userUpdates).length > 0) {
-        await manager.update(User, userId, userUpdates);
-      }
-      if (dto.position !== undefined) {
-        await manager.update(BranchStaff, assignment.id, { position: dto.position });
-      }
-    });
+    if (dto.position !== undefined) {
+      await this.branchStaffRepo.update(assignment.id, { position: dto.position });
+    }
 
     return this.loadAssignment(branchId, userId);
   }
@@ -145,28 +162,22 @@ export class BranchStaffService {
       throw new BadRequestException('Staff member is already inactive');
     }
 
+    await this.branchStaffRepo.update(assignment.id, {
+      status: StaffStatus.Inactive,
+      endDate: new Date(),
+    });
+
+    // Reassign upcoming/active bookings of this staff to null (Chưa phân công KTV)
     const { Booking } = await import('src/modules/booking/entities/booking.entity');
     const { BookingStatus } = await import('src/modules/booking/enums/booking-status.enum');
-
-    // Deactivating the staff member and freeing up their upcoming bookings must happen
-    // together — otherwise an inactive technician could be left still assigned to live
-    // bookings, or active bookings could be unassigned while staff stays active.
-    await this.dataSource.transaction(async (manager) => {
-      await manager.update(BranchStaff, assignment.id, {
-        status: StaffStatus.Inactive,
-        endDate: new Date(),
-      });
-
-      // Reassign upcoming/active bookings of this staff to null (Chưa phân công KTV)
-      await manager.update(
-        Booking,
-        {
-          technicianId: userId,
-          status: In([BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService]),
-        },
-        { technicianId: null },
-      );
-    });
+    await this.branchStaffRepo.manager.update(
+      Booking,
+      {
+        technicianId: userId,
+        status: In([BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService]),
+      },
+      { technicianId: null },
+    );
 
     return this.loadAssignment(branchId, userId);
   }
@@ -191,41 +202,41 @@ export class BranchStaffService {
 
     const count = await this.branchStaffRepo.count({ where: { branchId, position: StaffPosition.Manager } });
     const staffCode = `MGR-${branch.code}-${String(count + 1).padStart(3, '0')}`;
-    const passwordHash = await bcrypt.hash(this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD'), 12);
+    const rawPassword = this.configService.getOrThrow<string>('DEFAULT_STAFF_PASSWORD');
+    const passwordHash = await bcrypt.hash(rawPassword, 12);
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
 
-    return await this.dataSource.transaction(async (manager) => {
-      const user = await manager.save(
-        manager.create(User, {
-          fullName: dto.fullName,
-          email: normalizedEmail,
-          phone: dto.phone ?? null,
-          passwordHash,
-          role: UserRole.Manager,
-          status: UserStatus.Active,
-          authProvider: AuthProvider.Email,
-          gender: dto.gender ?? Gender.Unknown,
-          dateOfBirth: null,
-          address: null,
-          avatarUrl: null,
-        }),
-      );
+    const user = await this.userRepo.save(
+      this.userRepo.create({
+        fullName: dto.fullName,
+        email: normalizedEmail,
+        phone: dto.phone ?? null,
+        passwordHash,
+        role: UserRole.Manager,
+        status: UserStatus.Active,
+        authProvider: AuthProvider.Email,
+        gender: dto.gender ?? Gender.Unknown,
+        dateOfBirth: null,
+        address: null,
+        avatarUrl: null,
+      }),
+    );
 
-      const assignment = await manager.save(
-        manager.create(BranchStaff, {
-          branchId,
-          userId: user.id,
-          staffCode,
-          position: StaffPosition.Manager,
-          status: StaffStatus.Active,
-          startDate,
-          endDate: null,
-        }),
-      );
+    const assignment = await this.branchStaffRepo.save(
+      this.branchStaffRepo.create({
+        branchId,
+        userId: user.id,
+        staffCode,
+        position: StaffPosition.Manager,
+        status: StaffStatus.Active,
+        startDate,
+        endDate: null,
+      }),
+    );
 
-      assignment.user = user;
-      return assignment;
-    });
+    assignment.user = user;
+    void this.mailService.sendWelcomeEmail(normalizedEmail, dto.fullName, rawPassword);
+    return assignment;
   }
 
   // UC33 — Owner: edit manager account
@@ -257,12 +268,72 @@ export class BranchStaffService {
       throw new BadRequestException('Manager account is already inactive');
     }
 
-    await this.dataSource.transaction(async (manager) => {
-      await manager.update(BranchStaff, assignment.id, { status: StaffStatus.Inactive, endDate: new Date() });
-      await manager.update(User, userId, { status: UserStatus.Suspended });
-    });
+    await this.branchStaffRepo.update(assignment.id, { status: StaffStatus.Inactive, endDate: new Date() });
+    await this.userRepo.update(userId, { status: UserStatus.Suspended, email: null });
 
     return this.loadAssignment(branchId, userId);
+  }
+
+  // UC33 — Owner: transfer manager to another branch (atomic)
+  async transferManager(sourceBranchId: string, userId: string, dto: TransferManagerDto): Promise<BranchStaff> {
+    if (dto.targetBranchId === sourceBranchId) {
+      throw new BadRequestException('Target branch must differ from the current branch');
+    }
+
+    const targetBranch = await this.branchRepo.findOne({ where: { id: dto.targetBranchId } });
+    if (!targetBranch) throw new NotFoundException('Target branch not found');
+
+    const sourceAssignment = await this.branchStaffRepo.findOne({
+      where: { branchId: sourceBranchId, userId, position: StaffPosition.Manager },
+      relations: ['user'],
+    });
+    if (!sourceAssignment) throw new NotFoundException('Manager not found at source branch');
+    if (sourceAssignment.status === StaffStatus.Inactive) {
+      throw new BadRequestException('Manager account is already inactive');
+    }
+
+    const alreadyAtTarget = await this.branchStaffRepo.findOne({
+      where: { branchId: dto.targetBranchId, userId },
+    });
+    if (alreadyAtTarget) throw new ConflictException('Manager already has an assignment at the target branch');
+
+    const activeManagerAtTarget = await this.branchStaffRepo.findOne({
+      where: { branchId: dto.targetBranchId, position: StaffPosition.Manager, status: StaffStatus.Active },
+      relations: ['user'],
+    });
+    if (activeManagerAtTarget) {
+      throw new ConflictException(
+        // eslint-disable-next-line max-len
+        `Chi nhánh đích đã có manager đang hoạt động (${activeManagerAtTarget.user?.fullName ?? activeManagerAtTarget.userId}). Vô hiệu hóa họ trước rồi mới chuyển.`,
+      );
+    }
+
+    const count = await this.branchStaffRepo.count({
+      where: { branchId: dto.targetBranchId, position: StaffPosition.Manager },
+    });
+    const newStaffCode = `MGR-${targetBranch.code}-${String(count + 1).padStart(3, '0')}`;
+    const today = new Date();
+
+    let saved: BranchStaff | undefined;
+    await this.branchStaffRepo.manager.transaction(async (em) => {
+      await em.update(BranchStaff, sourceAssignment.id, {
+        status: StaffStatus.Inactive,
+        endDate: today,
+      });
+      const newAssignment = em.create(BranchStaff, {
+        branchId: dto.targetBranchId,
+        userId,
+        staffCode: newStaffCode,
+        position: StaffPosition.Manager,
+        status: StaffStatus.Active,
+        startDate: today,
+        endDate: null,
+      });
+      saved = await em.save(BranchStaff, newAssignment);
+    });
+
+    saved!.user = sourceAssignment.user;
+    return saved!;
   }
 
   private async assertManagerAtBranch(managerId: string, branchId: string): Promise<void> {

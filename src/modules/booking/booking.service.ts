@@ -1,12 +1,16 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { vietnamDate } from 'src/common/utils/vietnam-date';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService as BookingServiceEntity } from './entities/booking-service.entity';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
-import { BranchService } from 'src/modules/branch-service/entities/branch-service.entity';
+import { BranchService as BranchServiceEntity } from 'src/modules/branch-service/entities/branch-service.entity';
 import { Branch } from 'src/modules/branch/entities/branch.entity';
 import { BranchStaff } from 'src/modules/branch/entities/branch-staff.entity';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { ScheduleRequest } from 'src/modules/schedule/entities/schedule-request.entity';
 import { ApprovalStatus } from 'src/modules/schedule/enums/approval-status.enum';
 import { ScheduleRequestType } from 'src/modules/schedule/enums/schedule-request-type.enum';
@@ -28,20 +32,29 @@ import { Promotion } from 'src/modules/promotion/entities/promotion.entity';
 import { DiscountCodeStatus } from 'src/modules/promotion/enums/discount-code-status.enum';
 import { DiscountType } from 'src/modules/promotion/enums/discount-type.enum';
 import { PromotionStatus } from 'src/modules/promotion/enums/promotion-status.enum';
+import { User } from 'src/modules/user/entities/user.entity';
 import { UserService } from 'src/modules/user/user.service';
 import { UserStatus } from 'src/modules/user/enums/user-status.enum';
 import { AuthProvider } from 'src/modules/user/enums/auth-provider.enum';
 import { Gender } from 'src/modules/user/enums/gender.enum';
+import { Invoice } from 'src/modules/payment/entities/invoice.entity';
 import { Payment } from 'src/modules/payment/entities/payment.entity';
-import { PaymentMethod } from 'src/modules/payment/enums/payment-method.enum';
+import { InvoiceStatus } from 'src/modules/payment/enums/invoice-status.enum';
 import { PaymentStatus } from 'src/modules/payment/enums/payment-status.enum';
-import { PaymentType } from 'src/modules/payment/enums/payment-type.enum';
+import { BOOKING_EVENTS } from 'src/common/constants/events';
+import { SepayConfig } from 'src/modules/payment/infrastructure/sepay/sepay.config';
+import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
+import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
+import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
+import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
+const ROOM_OCCUPYING_STATUSES = [BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 
 function normalizeVietnamPhone(phone: string): string {
-  const compact = phone.replace(/\s/g, '');
+  const compact = phone.replace(/[^\d+]/g, '');
   if (/^\+84\d{9}$/.test(compact)) return `0${compact.slice(3)}`;
+  if (/^84\d{9}$/.test(compact)) return `0${compact.slice(2)}`;
   return compact;
 }
 
@@ -54,18 +67,24 @@ export class BookingService {
     private readonly bookingServiceRepo: Repository<BookingServiceEntity>,
     @InjectRepository(BookingSlotConfig)
     private readonly slotConfigRepo: Repository<BookingSlotConfig>,
-    @InjectRepository(BranchService)
-    private readonly branchServiceRepo: Repository<BranchService>,
+    @InjectRepository(BranchServiceEntity)
+    private readonly branchServiceRepo: Repository<BranchServiceEntity>,
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
     @InjectRepository(BranchStaff)
     private readonly branchStaffRepo: Repository<BranchStaff>,
+    @InjectRepository(StaffSchedule)
+    private readonly staffScheduleRepo: Repository<StaffSchedule>,
     @InjectRepository(ScheduleRequest)
     private readonly scheduleRequestRepo: Repository<ScheduleRequest>,
     @InjectRepository(DiscountCode)
     private readonly discountCodeRepo: Repository<DiscountCode>,
+    @InjectRepository(Promotion)
+    private readonly promotionRepo: Repository<Promotion>,
     private readonly userService: UserService,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService,
   ) {}
 
   // UC10 — Book Appointment
@@ -87,18 +106,23 @@ export class BookingService {
 
     const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
     const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
-    const depositAmount = Math.round(unitPrice * 0.1);
+    const depositPercent = this.configService.get<SepayConfig>('sepay', { infer: true })!.depositPercent;
+    const depositAmount = depositPercent > 0 ? Math.round(unitPrice * (depositPercent / 100)) : 0;
+    const initialStatus = depositAmount > 0 ? BookingStatus.PendingPayment : BookingStatus.Confirmed;
 
     // 3. Compute start/end times
     const startTime = new Date(dto.startTime);
+    if (isNaN(startTime.getTime()) || startTime <= new Date()) {
+      throw new BadRequestException('Start time must be a valid date in the future');
+    }
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
 
     // 4. Resolve a concrete technician. If the customer chooses "any", assign the first available scheduled technician.
     const technicianId = await this.resolveTechnician(dto.branchId, dto.technicianId, startTime, endTime);
 
     // 5. Find slot config to check capacity
-    const targetDate = startTime.toISOString().slice(0, 10); // YYYY-MM-DD UTC
-    const dayOfWeek = startTime.getDay();
+    const targetDate = vietnamDate.toDateString(startTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(startTime);
 
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
@@ -110,31 +134,57 @@ export class BookingService {
 
     const maxBookings = slotConfig?.maxBookings ?? 1;
 
-    // 6. Check slot availability (prevent double-booking)
-    const overlapping = await this.bookingRepo
-      .createQueryBuilder('b')
-      .where('b.branchId = :branchId', { branchId: dto.branchId })
-      .andWhere('b.startTime < :endTime', { endTime })
-      .andWhere('b.endTime > :startTime', { startTime })
-      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
-      .getCount();
-
-    if (overlapping >= maxBookings) {
-      throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
+    // Resolve active technician count scheduled for this specific slot
+    const allTechs = await this.branchStaffRepo.find({
+      where: { branchId: dto.branchId, position: StaffPosition.Technician, status: StaffStatus.Active }
+    });
+    const techIds = allTechs.map(t => t.userId);
+    let scheduledTechCount = 0;
+    if (techIds.length > 0) {
+      const shifts = await this.scheduleRequestRepo
+        .createQueryBuilder('sr')
+        .where('sr.staffId IN (:...techIds)', { techIds })
+        .andWhere('sr.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
+        .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
+        .andWhere('sr.requestedStart <= :startTime', { startTime })
+        .andWhere('sr.requestedEnd >= :endTime', { endTime })
+        .getMany();
+      scheduledTechCount = shifts.length;
     }
 
-    // 7. Create booking. Online appointments are held until the customer pays the deposit.
-    //    Booking + booking-service must be created atomically — a booking with no
-    //    service row (or vice versa) would be an invalid, half-created appointment.
-    return await this.dataSource.transaction(async (manager) => {
-      const booking = await manager.save(
+    // Real capacity is determined entirely by the number of active scheduled staff for this slot
+    const effectiveMaxBookings = scheduledTechCount;
+
+    // 6 + 7 + 8. Lock branch, kiểm tra slot bên trong transaction, tạo booking atomically (BUG-041)
+    const booking = await this.dataSource.transaction(async (manager) => {
+      // Lock row branch để serialize concurrent requests cho cùng branch.
+      // Không có lock: 2 requests đọc count=0 đồng thời, cả 2 pass → overbooking.
+      await manager.findOneOrFail(Branch, {
+        where: { id: dto.branchId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const overlapping = await manager
+        .createQueryBuilder(Booking, 'b')
+        .where('b.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getCount();
+
+      if (overlapping >= effectiveMaxBookings) {
+        throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
+      }
+
+      const created = await manager.save(
         manager.create(Booking, {
           customerId,
           branchId: dto.branchId,
           technicianId,
           startTime,
           endTime,
-          status: BookingStatus.PendingPayment,
+          status: initialStatus,
           source: BookingSource.Online,
           subtotalAmount: unitPrice,
           discountAmount: 0,
@@ -146,10 +196,9 @@ export class BookingService {
         }),
       );
 
-      // 8. Create booking-service record
       await manager.save(
         manager.create(BookingServiceEntity, {
-          bookingId: booking.id,
+          bookingId: created.id,
           serviceId: dto.serviceId,
           quantity: 1,
           durationMinutes,
@@ -159,54 +208,39 @@ export class BookingService {
         }),
       );
 
-      return booking;
-    });
-  }
-
-  async payDeposit(id: string, customerId: string, paymentMethod: PaymentMethod = PaymentMethod.EWallet): Promise<Booking> {
-    const booking = await this.bookingRepo.findOne({ where: { id } });
-    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
-    if (booking.customerId !== customerId) throw new ForbiddenException('You do not have access to this booking');
-    if (booking.status !== BookingStatus.PendingPayment) {
-      throw new BadRequestException('Only bookings waiting for deposit can be paid');
-    }
-
-    const depositAmount = parseFloat(booking.depositRequiredAmount as unknown as string);
-    if (!Number.isFinite(depositAmount) || depositAmount <= 0) {
-      throw new BadRequestException('This booking does not require a deposit');
-    }
-
-    const paidAmount = parseFloat(booking.paidAmount as unknown as string);
-    const subtotalAmount = parseFloat(booking.subtotalAmount as unknown as string);
-    const discountAmount = parseFloat(booking.discountAmount as unknown as string);
-    const totalAfterDiscount = Math.max(0, subtotalAmount - discountAmount);
-    const nextPaidAmount = Math.min(totalAfterDiscount, paidAmount + depositAmount);
-    const nextRemainingAmount = Math.max(0, totalAfterDiscount - nextPaidAmount);
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.save(
-        manager.create(Payment, {
-          invoiceId: null,
-          bookingId: booking.id,
-          customerId: booking.customerId,
-          branchId: booking.branchId,
-          paymentType: PaymentType.Deposit,
-          paymentMethod,
-          status: PaymentStatus.Paid,
-          amount: depositAmount,
-          paidAt: new Date(),
-          receivedBy: null,
-        }),
-      );
-
-      await manager.update(Booking, id, {
-        status: BookingStatus.Confirmed,
-        paidAmount: nextPaidAmount,
-        remainingAmount: nextRemainingAmount,
+      // Link next planned treatment session if active course exists
+      const activeCourse = await manager.findOne(TreatmentCourse, {
+        where: {
+          customerId,
+          serviceId: dto.serviceId,
+          status: TreatmentCourseStatus.Active,
+        },
+        order: { createdAt: 'ASC' },
       });
-    });
+      if (activeCourse) {
+        const nextSession = await manager.findOne(TreatmentSession, {
+          where: {
+            treatmentCourseId: activeCourse.id,
+            status: TreatmentSessionStatus.Planned,
+          },
+          order: { sessionNumber: 'ASC' },
+        });
+        if (nextSession) {
+          nextSession.bookingId = created.id;
+          nextSession.status = TreatmentSessionStatus.Booked;
+          nextSession.staffId = technicianId;
+          await manager.save(TreatmentSession, nextSession);
+        }
+      }
 
-    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+      return created;
+    });
+    this.eventEmitter.emit(BOOKING_EVENTS.CREATED, {
+      bookingId: booking.id,
+      customerId: booking.customerId,
+      branchId: booking.branchId,
+    });
+    return booking;
   }
 
   // UC11 — Reschedule Appointment
@@ -242,8 +276,8 @@ export class BookingService {
     const newTechnicianId = await this.resolveTechnician(booking.branchId, dto.technicianId, new Date(dto.startTime), newEndTime);
 
     // 6. Find slot config for the new date
-    const targetDate = newStartTime.toISOString().slice(0, 10);
-    const dayOfWeek = newStartTime.getDay();
+    const targetDate = vietnamDate.toDateString(newStartTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(newStartTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: booking.branchId })
@@ -267,10 +301,8 @@ export class BookingService {
       throw new ConflictException('The selected time slot is not available. Please choose a different time.');
     }
 
-    // 8-10. Mark old booking as Rescheduled, create the new booking, and clone its
-    // booking-service row, all atomically — otherwise a crash mid-way could cancel
-    // the old appointment without creating its replacement (losing the booking entirely).
-    return await this.dataSource.transaction(async (manager) => {
+    // 8-10. Mark old as rescheduled, create new booking and service record atomically
+    const newBooking = await this.dataSource.transaction(async (manager) => {
       await manager.update(Booking, id, { status: BookingStatus.Rescheduled });
 
       const newBooking = await manager.save(
@@ -306,8 +338,30 @@ export class BookingService {
         }),
       );
 
+      await manager.update(TreatmentSession, { bookingId: id }, { bookingId: newBooking.id, staffId: newTechnicianId });
+
+      // The rescheduled booking counts as a fresh usage of the discount code
+      if (booking.discountCodeId) {
+        await manager.increment(DiscountCode, { id: booking.discountCodeId }, 'usedCount', 1);
+        const dc = await manager.findOne(DiscountCode, { where: { id: booking.discountCodeId } });
+        if (dc?.promotionId) {
+          await manager.increment(Promotion, { id: dc.promotionId }, 'usedCount', 1);
+        }
+      }
+
       return newBooking;
     });
+
+    this.eventEmitter.emit(BOOKING_EVENTS.RESCHEDULED, {
+      bookingId: newBooking.id,
+      previousBookingId: booking.id,
+      customerId: newBooking.customerId,
+      branchId: newBooking.branchId,
+      startTime: newBooking.startTime,
+      endTime: newBooking.endTime,
+    });
+
+    return newBooking;
   }
 
   // UC13 — Transfer Appointment to Another Branch
@@ -362,8 +416,8 @@ export class BookingService {
     }
 
     // 9. Find slot config at target branch for the new date
-    const targetDate = newStartTime.toISOString().slice(0, 10);
-    const dayOfWeek = newStartTime.getDay();
+    const targetDate = vietnamDate.toDateString(newStartTime);
+    const dayOfWeek = vietnamDate.dayOfWeek(newStartTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: dto.targetBranchId })
@@ -386,13 +440,12 @@ export class BookingService {
       throw new ConflictException('The selected time slot is not available at the target branch. Please choose a different time.');
     }
 
-    // 11-13. Mark old booking as Transferred, create the new booking at the target
-    // branch, and clone its booking-service row, all atomically.
+    // 11-13. Mark old as transferred, create new booking and service record atomically
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
     const discountAmount = parseFloat(booking.discountAmount as unknown as string);
     const newRemainingAmount = Math.max(0, newUnitPrice - discountAmount - paidAmount);
 
-    return await this.dataSource.transaction(async (manager) => {
+    const newBooking = await this.dataSource.transaction(async (manager) => {
       await manager.update(Booking, id, { status: BookingStatus.Transferred });
 
       const newBooking = await manager.save(
@@ -428,8 +481,22 @@ export class BookingService {
         }),
       );
 
+      await manager.update(TreatmentSession, { bookingId: id }, { bookingId: newBooking.id, staffId: dto.technicianId ?? null });
+
       return newBooking;
     });
+
+    this.eventEmitter.emit(BOOKING_EVENTS.TRANSFERRED, {
+      bookingId: newBooking.id,
+      previousBookingId: booking.id,
+      customerId: newBooking.customerId,
+      sourceBranchId: booking.branchId,
+      targetBranchId: newBooking.branchId,
+      startTime: newBooking.startTime,
+      endTime: newBooking.endTime,
+    });
+
+    return newBooking;
   }
 
   // UC12 — Cancel Appointment
@@ -450,14 +517,46 @@ export class BookingService {
       throw new BadRequestException('Cannot cancel a booking that has already started');
     }
 
-    // 4. Apply cancellation
-    await this.bookingRepo.update(id, {
-      status: BookingStatus.Cancelled,
-      cancelReason: dto.cancelReason ?? null,
-      cancelledAt: new Date(),
+    // 4. Apply cancellation atomically — booking + any non-terminal invoice must be updated together
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Booking, id, {
+        status: BookingStatus.Cancelled,
+        cancelReason: dto.cancelReason ?? null,
+        cancelledAt: new Date(),
+      });
+
+      await manager.update(
+        TreatmentSession,
+        { bookingId: id },
+        { status: TreatmentSessionStatus.Planned, bookingId: null, staffId: null }
+      );
+
+      const invoice = await manager.findOne(Invoice, { where: { bookingId: id } });
+      if (invoice) {
+        if ([InvoiceStatus.Draft, InvoiceStatus.Issued].includes(invoice.status)) {
+          await manager.update(Invoice, invoice.id, { status: InvoiceStatus.Voided });
+        } else if ([InvoiceStatus.PartiallyPaid, InvoiceStatus.Paid].includes(invoice.status)) {
+          // Deposit already paid — mark invoice and outstanding payments for refund
+          await manager.update(Invoice, invoice.id, { status: InvoiceStatus.Refunded });
+          await manager.update(
+            Payment,
+            { invoiceId: invoice.id, status: In([PaymentStatus.Paid, PaymentStatus.PartiallyRefunded]) },
+            { status: PaymentStatus.Refunded, refundReason: 'Booking cancelled by customer' },
+          );
+        }
+      }
     });
 
-    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+    const cancelled = (await this.bookingRepo.findOne({ where: { id } })) as Booking;
+
+    this.eventEmitter.emit(BOOKING_EVENTS.CANCELLED, {
+      bookingId: cancelled.id,
+      customerId: cancelled.customerId,
+      branchId: cancelled.branchId,
+      reason: cancelled.cancelReason ?? undefined,
+    });
+
+    return cancelled;
   }
 
   // UC18 — Check In Customer
@@ -475,6 +574,10 @@ export class BookingService {
       throw new BadRequestException('Cannot check in before the booking start time');
     }
 
+    if (!booking.room) {
+      throw new BadRequestException('Room must be assigned before check-in');
+    }
+
     // 3. Staff must be active at the booking branch
     const assignment = await this.branchStaffRepo.findOne({
       where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
@@ -483,11 +586,32 @@ export class BookingService {
       throw new ForbiddenException('You are not an active staff member at this branch');
     }
 
+    await this.ensureRoomAvailable(booking, booking.room);
+
     // 4. Mark as checked in
     await this.bookingRepo.update(id, {
       status: BookingStatus.CheckedIn,
       checkedInAt: new Date(),
     });
+
+    return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
+  }
+  async completeService(id: string, staffId: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) throw new NotFoundException(`Booking ${id} not found`);
+
+    if (![BookingStatus.CheckedIn, BookingStatus.InService].includes(booking.status)) {
+      throw new BadRequestException('Only checked-in or in-service bookings can be marked as service completed');
+    }
+
+    const assignment = await this.branchStaffRepo.findOne({
+      where: { userId: staffId, branchId: booking.branchId, status: StaffStatus.Active },
+    });
+    if (!assignment) {
+      throw new ForbiddenException(`Staff ${staffId} is not an active staff member at this branch`);
+    }
+
+    await this.bookingRepo.update(id, { status: BookingStatus.ServiceCompleted, room: null });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
@@ -508,21 +632,12 @@ export class BookingService {
       throw new NotFoundException(`Branch ${dto.branchId} not found or inactive`);
     }
 
-    // 2a. Resolve customer by id, or by existing phone match, or queue a quick-create
-    // from walk-in phone/name (the quick-create itself is deferred into the write
-    // transaction below so a new customer row is never orphaned without its booking).
-    let customerId = dto.customerId;
-    let newCustomerData: {
-      fullName: string;
-      email: null;
-      phone: string;
-      passwordHash: null;
-      authProvider: AuthProvider;
-      status: UserStatus;
-      gender: Gender;
-      dateOfBirth: null;
-      address: null;
-    } | null = null;
+    // 2a. Resolve customer by id or quick-create from walk-in phone/name
+    // BUG-044: user creation moved inside transaction — không tạo User ngoài tx nữa
+    let customerId: string | undefined = dto.customerId;
+    let needsNewCustomer = false;
+    let newCustomerName = '';
+    let newCustomerPhone = '';
 
     if (customerId) {
       const customer = await this.userService.findById(customerId);
@@ -530,7 +645,7 @@ export class BookingService {
         throw new NotFoundException(`Customer ${customerId} not found or inactive`);
       }
     } else {
-      const customerName = dto.customerName?.trim();
+      const customerName = dto.customerName?.trim() ?? '';
       const customerPhone = dto.customerPhone ? normalizeVietnamPhone(dto.customerPhone) : '';
 
       if (!customerName || !customerPhone) {
@@ -543,22 +658,38 @@ export class BookingService {
 
       const existingCustomer = await this.userService.findByPhone(customerPhone);
       if (existingCustomer) {
-        if (existingCustomer.role !== UserRole.Customer || existingCustomer.status !== UserStatus.Active) {
-          throw new BadRequestException('This phone number belongs to a non-customer or inactive account');
+        if (existingCustomer.role !== UserRole.Customer) {
+          this.eventEmitter.emit(BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT, {
+            branchId: dto.branchId,
+            staffId,
+            customerName,
+            customerPhone,
+            conflictingUserId: existingCustomer.id,
+            conflictingRole: existingCustomer.role,
+            conflictingStatus: existingCustomer.status,
+            reason: 'internal_account',
+          });
+          throw new BadRequestException('So dien thoai nay dang thuoc tai khoan noi bo. Vui long dung so khac.');
+        }
+        if (existingCustomer.status !== UserStatus.Active) {
+          this.eventEmitter.emit(BOOKING_EVENTS.WALK_IN_PHONE_CONFLICT, {
+            branchId: dto.branchId,
+            staffId,
+            customerName,
+            customerPhone,
+            conflictingUserId: existingCustomer.id,
+            conflictingRole: existingCustomer.role,
+            conflictingStatus: existingCustomer.status,
+            reason: 'inactive_customer',
+          });
+          throw new BadRequestException('Tai khoan khach hang dung so dien thoai nay dang bi khoa hoac chua hoat dong.');
         }
         customerId = existingCustomer.id;
       } else {
-        newCustomerData = {
-          fullName: customerName,
-          email: null,
-          phone: customerPhone,
-          passwordHash: null,
-          authProvider: AuthProvider.Email,
-          status: UserStatus.Active,
-          gender: Gender.Unknown,
-          dateOfBirth: null,
-          address: null,
-        };
+        // Defer tạo user vào trong transaction — User và Booking commit/rollback cùng nhau (BUG-044)
+        needsNewCustomer = true;
+        newCustomerName = customerName;
+        newCustomerPhone = customerPhone;
       }
     }
 
@@ -586,8 +717,8 @@ export class BookingService {
 
     // 5. Start time must be today (same-day walk-in)
     const startTime = new Date(dto.startTime);
-    const nowDate = new Date().toISOString().slice(0, 10);
-    const slotDate = startTime.toISOString().slice(0, 10);
+    const nowDate = vietnamDate.toDateString(new Date());
+    const slotDate = vietnamDate.toDateString(startTime);
     if (slotDate !== nowDate) {
       throw new BadRequestException('Walk-in appointments must be scheduled for today');
     }
@@ -599,8 +730,8 @@ export class BookingService {
       await this.resolveTechnician(dto.branchId, dto.technicianId, startTime, endTime);
     }
 
-    // 6. Check slot capacity
-    const dayOfWeek = startTime.getDay();
+    // 6. Đọc slot config (read-only, an toàn ngoài transaction)
+    const dayOfWeek = vietnamDate.dayOfWeek(startTime);
     const slotConfig = await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: dto.branchId })
@@ -611,31 +742,50 @@ export class BookingService {
 
     const maxBookings = slotConfig?.maxBookings ?? 1;
 
-    const overlapping = await this.bookingRepo
-      .createQueryBuilder('b')
-      .where('b.branchId = :branchId', { branchId: dto.branchId })
-      .andWhere('b.startTime < :endTime', { endTime })
-      .andWhere('b.endTime > :startTime', { startTime })
-      .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
-      .getCount();
+    // 7 + 8. Lock branch, tạo customer mới (nếu cần), kiểm tra slot, tạo booking atomically (BUG-041 + BUG-044)
+    return this.dataSource.transaction(async (manager) => {
+      // Lock row branch để serialize concurrent booking creation cho cùng branch (BUG-041)
+      await manager.findOneOrFail(Branch, {
+        where: { id: dto.branchId },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (overlapping >= maxBookings) {
-      throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
-    }
+      const overlapping = await manager
+        .createQueryBuilder(Booking, 'b')
+        .where('b.branchId = :branchId', { branchId: dto.branchId })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getCount();
 
-    // 7-8. Create the (possibly new) customer, the booking, and its booking-service
-    // row all atomically — a half-completed walk-in would either strand a new
-    // customer account with no booking, or check a customer in with no service record.
-    return await this.dataSource.transaction(async (manager) => {
-      let resolvedCustomerId = customerId;
-      if (!resolvedCustomerId && newCustomerData) {
-        const createdCustomer = await this.userService.create(newCustomerData, manager);
-        resolvedCustomerId = createdCustomer.id;
+      if (overlapping >= maxBookings) {
+        throw new ConflictException('The selected time slot is fully booked. Please choose a different time.');
+      }
+
+      // Tạo customer mới bên trong transaction — User và Booking commit/rollback cùng nhau (BUG-044)
+      if (needsNewCustomer) {
+        const newUser = await manager.save(
+          manager.create(User, {
+            fullName: newCustomerName,
+            phone: newCustomerPhone,
+            email: null,
+            passwordHash: null,
+            // Walk-in stubs have no credentials (passwordHash null, email null) — cannot authenticate
+            authProvider: AuthProvider.Email,
+            status: UserStatus.Active,
+            isActive: false,
+            role: UserRole.Customer,
+            gender: Gender.Unknown,
+            dateOfBirth: null,
+            address: null,
+          }),
+        );
+        customerId = newUser.id;
       }
 
       const booking = await manager.save(
         manager.create(Booking, {
-          customerId: resolvedCustomerId,
+          customerId: customerId!,
           branchId: dto.branchId,
           technicianId: dto.technicianId ?? null,
           startTime,
@@ -665,6 +815,31 @@ export class BookingService {
         }),
       );
 
+      // Link next planned treatment session if active course exists
+      const activeCourse = await manager.findOne(TreatmentCourse, {
+        where: {
+          customerId: customerId!,
+          serviceId: dto.serviceId,
+          status: TreatmentCourseStatus.Active,
+        },
+        order: { createdAt: 'ASC' },
+      });
+      if (activeCourse) {
+        const nextSession = await manager.findOne(TreatmentSession, {
+          where: {
+            treatmentCourseId: activeCourse.id,
+            status: TreatmentSessionStatus.Planned,
+          },
+          order: { sessionNumber: 'ASC' },
+        });
+        if (nextSession) {
+          nextSession.bookingId = booking.id;
+          nextSession.status = TreatmentSessionStatus.Booked;
+          nextSession.staffId = dto.technicianId ?? null;
+          await manager.save(TreatmentSession, nextSession);
+        }
+      }
+
       return booking;
     });
   }
@@ -682,7 +857,7 @@ export class BookingService {
       throw new BadRequestException('Discount codes can only be applied to upcoming bookings');
     }
 
-    // 3. Prevent applying a second discount
+    // 3. Prevent applying a second discount (fast path — re-checked under lock)
     if (booking.discountCodeId) {
       throw new BadRequestException('A discount code has already been applied to this booking');
     }
@@ -712,17 +887,7 @@ export class BookingService {
       throw new BadRequestException('This discount code is not valid at this branch');
     }
 
-    // 8. Check total usage limit on the discount code
-    if (discountCode.usageLimitTotal !== null && discountCode.usedCount >= discountCode.usageLimitTotal) {
-      throw new BadRequestException(`Discount code "${dto.code}" has reached its usage limit`);
-    }
-
-    // 9. Check total usage limit on the promotion
-    if (promotion.usageLimitTotal !== null && promotion.usedCount >= promotion.usageLimitTotal) {
-      throw new BadRequestException('This promotion has reached its total usage limit');
-    }
-
-    // 10. Check per-customer usage limit
+    // 10. Check per-customer usage limit (read-only, pre-check)
     if (discountCode.usageLimitPerCustomer !== null) {
       const customerUses = await this.bookingRepo.count({ where: { customerId, discountCodeId: discountCode.id } });
       if (customerUses >= discountCode.usageLimitPerCustomer) {
@@ -739,7 +904,7 @@ export class BookingService {
       }
     }
 
-    // 12. Calculate discount amount
+    // 12. Calculate discount amount (pure computation, safe outside tx)
     const discountValue = parseFloat(promotion.discountValue as unknown as string);
     let discountAmount: number;
     if (promotion.discountType === DiscountType.FixedAmount) {
@@ -753,22 +918,51 @@ export class BookingService {
     discountAmount = Math.round(discountAmount * 100) / 100;
 
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
-    const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
-    const newDepositRequiredAmount =
-      booking.status === BookingStatus.PendingPayment ? Math.round((subtotal - discountAmount) * 0.1) : booking.depositRequiredAmount;
 
-    // 13-14. Apply the discount to the booking and increment usage counters together —
-    // otherwise a crash could grant a discount that was never counted against its limit,
-    // or count a usage that was never actually applied.
+    // 13-14. Atomic: lock rows → re-check limits → update booking + increment counts
     await this.dataSource.transaction(async (manager) => {
+      // Lock discount code to serialize concurrent apply-discount calls
+      const lockedCode = await manager.findOne(DiscountCode, {
+        where: { id: discountCode.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedCode) throw new NotFoundException(`Discount code "${dto.code}" not found`);
+
+      // Re-check usage limits under lock (guards against TOCTOU race)
+      if (lockedCode.usageLimitTotal !== null && lockedCode.usedCount >= lockedCode.usageLimitTotal) {
+        throw new BadRequestException(`Discount code "${dto.code}" has reached its usage limit`);
+      }
+      if (promotion.usageLimitTotal !== null) {
+        const freshPromo = await manager.findOne(Promotion, { where: { id: promotion.id } });
+        if (freshPromo && freshPromo.usedCount >= promotion.usageLimitTotal) {
+          throw new BadRequestException('This promotion has reached its total usage limit');
+        }
+      }
+
+      // Lock booking row to prevent concurrent double-discount
+      const lockedBooking = await manager.findOne(Booking, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedBooking) throw new NotFoundException(`Booking ${id} not found`);
+      if (lockedBooking.discountCodeId) {
+        throw new BadRequestException('A discount code has already been applied to this booking');
+      }
+
+      const newRemainingAmount = Math.max(0, subtotal - discountAmount - paidAmount);
+      const depositPercent = this.configService.get<SepayConfig>('sepay', { infer: true })!.depositPercent;
+      const newDepositRequiredAmount =
+        lockedBooking.status === BookingStatus.PendingPayment
+          ? Math.round((subtotal - discountAmount) * (depositPercent / 100))
+          : lockedBooking.depositRequiredAmount;
+
       await manager.update(Booking, id, {
-        discountCodeId: discountCode.id,
+        discountCodeId: lockedCode.id,
         discountAmount,
         depositRequiredAmount: newDepositRequiredAmount,
         remainingAmount: newRemainingAmount,
       });
-
-      await manager.increment(DiscountCode, { id: discountCode.id }, 'usedCount', 1);
+      await manager.increment(DiscountCode, { id: lockedCode.id }, 'usedCount', 1);
       await manager.increment(Promotion, { id: promotion.id }, 'usedCount', 1);
     });
 
@@ -789,6 +983,10 @@ export class BookingService {
     branchId: string,
     requesterId: string,
     requesterRole: string,
+    date?: string,
+    limit = 100,
+    startDate?: string,
+    endDate?: string,
   ): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
     if (requesterRole !== UserRole.Owner) {
       const assignment = await this.branchStaffRepo.findOne({
@@ -797,22 +995,46 @@ export class BookingService {
       if (!assignment) throw new ForbiddenException('You are not active at this branch');
     }
 
-    const bookings = await this.bookingRepo.find({
-      where: { branchId },
-      order: { startTime: 'DESC' },
-      relations: ['customer', 'technician'],
-    });
+    const qb = this.bookingRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.customer', 'customer')
+      .leftJoinAndSelect('b.technician', 'technician')
+      .where('b.branchId = :branchId', { branchId })
+      .orderBy('b.startTime', 'DESC')
+      .take(limit);
+
+    if (startDate && endDate) {
+      const start = new Date(`${startDate}T00:00:00+07:00`);
+      const end = new Date(`${endDate}T23:59:59.999+07:00`);
+      qb.andWhere('b.startTime >= :start', { start })
+        .andWhere('b.startTime <= :end', { end });
+    } else if (date) {
+      const dayStart = new Date(`${date}T00:00:00+07:00`);
+      const dayEnd = new Date(`${date}T23:59:59.999+07:00`);
+      qb.andWhere('b.startTime >= :dayStart', { dayStart })
+        .andWhere('b.startTime <= :dayEnd', { dayEnd });
+    }
+
+    const bookings = await qb.getMany();
     return this.attachServices(bookings);
   }
 
-  async findOne(id: string, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+  async findOne(id: string, requesterId: string, requesterRole: string, requesterBranchId?: string | null): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
-    const isOwner = requesterRole === UserRole.Owner || requesterRole === UserRole.Staff || requesterRole === UserRole.Manager;
-    if (!isOwner && booking.customerId !== requesterId) {
-      throw new ForbiddenException('You do not have access to this booking');
+    if (requesterRole === UserRole.Customer) {
+      if (booking.customerId !== requesterId) throw new ForbiddenException('You do not have access to this booking');
+    } else if (requesterRole === UserRole.Staff || requesterRole === UserRole.Manager) {
+      const assignment = await this.branchStaffRepo.findOne({
+        where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
+      });
+
+      if (!assignment) {
+        throw new ForbiddenException('You do not have access to bookings at this branch');
+      }
     }
+    // Owner has no branch restriction
 
     const [withServices] = await this.attachServices([booking]);
     return withServices;
@@ -900,20 +1122,37 @@ export class BookingService {
       order: { staffCode: 'ASC' },
     });
 
-    for (const technician of technicians) {
-      const scheduledCount = await this.scheduleRequestRepo
+    if (technicians.length === 0) {
+      throw new ConflictException('No technician is available for the selected time slot. Please choose another time.');
+    }
+
+    const techIds = technicians.map(t => t.userId);
+
+    // Pre-load shifts and bookings for all technicians (BUG-046: replaces per-tech DB queries)
+    const [coveredShifts, overlappingBookings] = await Promise.all([
+      this.scheduleRequestRepo
         .createQueryBuilder('sr')
-        .where('sr.staffId = :technicianId', { technicianId: technician.userId })
+        .where('sr.staffId IN (:...techIds)', { techIds })
         .andWhere('sr.branchId = :branchId', { branchId })
         .andWhere('sr.requestType = :type', { type: ScheduleRequestType.WorkShift })
         .andWhere('sr.status = :status', { status: ApprovalStatus.Approved })
         .andWhere('sr.requestedStart <= :start', { start: startTime })
         .andWhere('sr.requestedEnd >= :end', { end: endTime })
-        .getCount();
-      if (scheduledCount === 0) continue;
+        .getMany(),
+      this.bookingRepo
+        .createQueryBuilder('b')
+        .where('b.technicianId IN (:...techIds)', { techIds })
+        .andWhere('b.startTime < :endTime', { endTime })
+        .andWhere('b.endTime > :startTime', { startTime })
+        .andWhere('b.status IN (:...active)', { active: ACTIVE_BOOKING_STATUSES })
+        .getMany(),
+    ]);
 
-      const overlapping = await this.countTechnicianOverlaps(technician.userId, startTime, endTime);
-      if (overlapping === 0) return technician.userId;
+    for (const technician of technicians) {
+      const isScheduled = coveredShifts.some(s => s.staffId === technician.userId);
+      if (!isScheduled) continue;
+      const hasOverlap = overlappingBookings.some(b => b.technicianId === technician.userId);
+      if (!hasOverlap) return technician.userId;
     }
 
     throw new ConflictException('No technician is available for the selected time slot. Please choose another time.');
@@ -952,12 +1191,23 @@ export class BookingService {
     return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
   }
 
-  async assignRoom(
-    id: string,
-    room: string | null,
-    requesterId: string,
-    requesterRole: string,
-  ): Promise<Booking & { services: BookingServiceEntity[] }> {
+  private async ensureRoomAvailable(booking: Booking, room: string): Promise<void> {
+    const conflict = await this.bookingRepo
+      .createQueryBuilder('booking')
+      .where('booking.id != :id', { id: booking.id })
+      .andWhere('booking.branchId = :branchId', { branchId: booking.branchId })
+      .andWhere('booking.room = :room', { room })
+      .andWhere('booking.status IN (:...statuses)', { statuses: ROOM_OCCUPYING_STATUSES })
+      .andWhere('booking.startTime < :endTime', { endTime: booking.endTime })
+      .andWhere('booking.endTime > :startTime', { startTime: booking.startTime })
+      .getOne();
+
+    if (conflict) {
+      throw new ConflictException('Room is already assigned to another booking in this time slot');
+    }
+  }
+
+  async assignRoom(id: string, room: string | null, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
@@ -966,6 +1216,14 @@ export class BookingService {
         where: { userId: requesterId, branchId: booking.branchId, status: StaffStatus.Active },
       });
       if (!assignment) throw new ForbiddenException('You are not active at this branch');
+    }
+
+    if (room && !ROOM_OCCUPYING_STATUSES.includes(booking.status)) {
+      throw new BadRequestException('Room can only be assigned before or during service');
+    }
+
+    if (room) {
+      await this.ensureRoomAvailable(booking, room);
     }
 
     await this.bookingRepo.update(id, { room });

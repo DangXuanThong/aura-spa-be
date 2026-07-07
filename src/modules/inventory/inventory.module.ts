@@ -9,8 +9,10 @@ import { InventoryService } from './inventory.service';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { AuthModule } from 'src/modules/auth/auth.module';
 
+import { InventoryItem } from './entities/inventory-item.entity';
+
 @Module({
-  imports: [TypeOrmModule.forFeature([BranchInventory, InventoryTransaction, ServiceInventoryRequirement, BranchStaff]), AuthModule],
+  imports: [TypeOrmModule.forFeature([BranchInventory, InventoryTransaction, ServiceInventoryRequirement, BranchStaff, InventoryItem]), AuthModule],
   controllers: [InventoryController],
   providers: [InventoryService, RolesGuard],
 })
