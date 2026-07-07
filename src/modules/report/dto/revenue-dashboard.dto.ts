@@ -5,6 +5,8 @@ export enum TrendGranularity {
   Day = 'day',
   Week = 'week',
   Month = 'month',
+  Quarter = 'quarter',
+  Year = 'year',
 }
 
 export class BranchRevenueSummaryDto {
