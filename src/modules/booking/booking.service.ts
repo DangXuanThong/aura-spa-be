@@ -106,8 +106,17 @@ export class BookingService {
 
     const durationMinutes = branchSvc.durationMinutesOverride ?? branchSvc.service!.defaultDurationMinutes;
     const unitPrice = parseFloat((branchSvc.priceOverride ?? branchSvc.service!.defaultPrice) as unknown as string);
+
+    // 2b. Optionally validate + calculate a discount code applied at booking time (pure computation, safe outside tx)
+    let discountResult: { discountCode: DiscountCode; promotion: Promotion; discountAmount: number } | null = null;
+    if (dto.discountCode) {
+      discountResult = await this.resolveDiscountCode(dto.discountCode, dto.branchId, customerId, unitPrice);
+    }
+    const discountAmount = discountResult?.discountAmount ?? 0;
+    const netAmount = unitPrice - discountAmount;
+
     const depositPercent = this.configService.get<SepayConfig>('sepay', { infer: true })!.depositPercent;
-    const depositAmount = depositPercent > 0 ? Math.round(unitPrice * (depositPercent / 100)) : 0;
+    const depositAmount = depositPercent > 0 ? Math.round(netAmount * (depositPercent / 100)) : 0;
     const initialStatus = depositAmount > 0 ? BookingStatus.PendingPayment : BookingStatus.Confirmed;
 
     // 3. Compute start/end times
@@ -123,8 +132,7 @@ export class BookingService {
     // 5. Find slot config to check capacity
     const targetDate = vietnamDate.toDateString(startTime);
     const dayOfWeek = vietnamDate.dayOfWeek(startTime);
-
-    const slotConfig = await this.slotConfigRepo
+    await this.slotConfigRepo
       .createQueryBuilder('sc')
       .where('sc.branchId = :branchId', { branchId: dto.branchId })
       .andWhere('sc.dayOfWeek = :dayOfWeek', { dayOfWeek })
@@ -132,13 +140,11 @@ export class BookingService {
       .andWhere('(sc.effectiveTo IS NULL OR sc.effectiveTo >= :date)', { date: targetDate })
       .getOne();
 
-    const maxBookings = slotConfig?.maxBookings ?? 1;
-
     // Resolve active technician count scheduled for this specific slot
     const allTechs = await this.branchStaffRepo.find({
-      where: { branchId: dto.branchId, position: StaffPosition.Technician, status: StaffStatus.Active }
+      where: { branchId: dto.branchId, position: StaffPosition.Technician, status: StaffStatus.Active },
     });
-    const techIds = allTechs.map(t => t.userId);
+    const techIds = allTechs.map((t) => t.userId);
     let scheduledTechCount = 0;
     if (techIds.length > 0) {
       const shifts = await this.scheduleRequestRepo
@@ -177,20 +183,45 @@ export class BookingService {
         throw new ConflictException('The selected time slot is no longer available. Please choose a different time.');
       }
 
+      // Re-validate the discount code under a row lock to guard against a TOCTOU race
+      // (e.g. the code hitting its usage limit between the pre-check above and now).
+      let appliedDiscountCodeId: string | null = null;
+      if (discountResult) {
+        const lockedCode = await manager.findOne(DiscountCode, {
+          where: { id: discountResult.discountCode.id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!lockedCode) throw new NotFoundException(`Discount code "${dto.discountCode}" not found`);
+        if (lockedCode.usageLimitTotal !== null && lockedCode.usedCount >= lockedCode.usageLimitTotal) {
+          throw new BadRequestException(`Discount code "${dto.discountCode}" has reached its usage limit`);
+        }
+        if (discountResult.promotion.usageLimitTotal !== null) {
+          const freshPromo = await manager.findOne(Promotion, { where: { id: discountResult.promotion.id } });
+          if (freshPromo && freshPromo.usedCount >= discountResult.promotion.usageLimitTotal) {
+            throw new BadRequestException('This promotion has reached its total usage limit');
+          }
+        }
+
+        await manager.increment(DiscountCode, { id: lockedCode.id }, 'usedCount', 1);
+        await manager.increment(Promotion, { id: discountResult.promotion.id }, 'usedCount', 1);
+        appliedDiscountCodeId = lockedCode.id;
+      }
+
       const created = await manager.save(
         manager.create(Booking, {
           customerId,
           branchId: dto.branchId,
           technicianId,
+          discountCodeId: appliedDiscountCodeId,
           startTime,
           endTime,
           status: initialStatus,
           source: BookingSource.Online,
           subtotalAmount: unitPrice,
-          discountAmount: 0,
+          discountAmount,
           depositRequiredAmount: depositAmount,
           paidAmount: 0,
-          remainingAmount: unitPrice,
+          remainingAmount: netAmount,
           notes: dto.notes ?? null,
           createdBy: customerId,
         }),
@@ -203,8 +234,8 @@ export class BookingService {
           quantity: 1,
           durationMinutes,
           unitPrice,
-          discountAmount: 0,
-          finalAmount: unitPrice,
+          discountAmount,
+          finalAmount: netAmount,
         }),
       );
 
@@ -525,11 +556,7 @@ export class BookingService {
         cancelledAt: new Date(),
       });
 
-      await manager.update(
-        TreatmentSession,
-        { bookingId: id },
-        { status: TreatmentSessionStatus.Planned, bookingId: null, staffId: null }
-      );
+      await manager.update(TreatmentSession, { bookingId: id }, { status: TreatmentSessionStatus.Planned, bookingId: null, staffId: null });
 
       const invoice = await manager.findOne(Invoice, { where: { bookingId: id } });
       if (invoice) {
@@ -844,6 +871,72 @@ export class BookingService {
     });
   }
 
+  // Shared discount/promotion validation + calculation used both at booking creation time and via UC14 (apply to an existing booking).
+  // This is a read-only, pre-check computation; callers are responsible for re-checking usage limits
+  // under a row lock inside their own transaction before committing.
+  private async resolveDiscountCode(
+    code: string,
+    branchId: string,
+    customerId: string,
+    subtotal: number,
+  ): Promise<{ discountCode: DiscountCode; promotion: Promotion; discountAmount: number }> {
+    // Look up discount code with its parent promotion
+    const discountCode = await this.discountCodeRepo.findOne({
+      where: { code },
+      relations: ['promotion'],
+    });
+    if (!discountCode) throw new NotFoundException(`Discount code "${code}" not found`);
+
+    const promotion = discountCode.promotion!;
+
+    // Validate discount code status
+    if (discountCode.status !== DiscountCodeStatus.Active) {
+      throw new BadRequestException(`Discount code "${code}" is not active`);
+    }
+
+    // Validate promotion is active and within date range
+    const now = new Date();
+    if (promotion.status !== PromotionStatus.Active || now < promotion.startsAt || now > promotion.endsAt) {
+      throw new BadRequestException(`Promotion associated with code "${code}" is not currently active`);
+    }
+
+    // Validate branch restriction (null = system-wide)
+    if (promotion.branchId && promotion.branchId !== branchId) {
+      throw new BadRequestException('This discount code is not valid at this branch');
+    }
+
+    // Check per-customer usage limit (read-only, pre-check)
+    if (discountCode.usageLimitPerCustomer !== null) {
+      const customerUses = await this.bookingRepo.count({ where: { customerId, discountCodeId: discountCode.id } });
+      if (customerUses >= discountCode.usageLimitPerCustomer) {
+        throw new BadRequestException('You have already used this discount code the maximum number of times');
+      }
+    }
+
+    // Check minimum order amount
+    if (promotion.minOrderAmount !== null) {
+      const minOrder = parseFloat(promotion.minOrderAmount as unknown as string);
+      if (subtotal < minOrder) {
+        throw new BadRequestException(`Order total must be at least ${minOrder} to use this discount code`);
+      }
+    }
+
+    // Calculate discount amount (pure computation, safe outside tx)
+    const discountValue = parseFloat(promotion.discountValue as unknown as string);
+    let discountAmount: number;
+    if (promotion.discountType === DiscountType.FixedAmount) {
+      discountAmount = Math.min(discountValue, subtotal);
+    } else {
+      discountAmount = (subtotal * discountValue) / 100;
+      if (promotion.maxDiscountAmount !== null) {
+        discountAmount = Math.min(discountAmount, parseFloat(promotion.maxDiscountAmount as unknown as string));
+      }
+    }
+    discountAmount = Math.round(discountAmount * 100) / 100;
+
+    return { discountCode, promotion, discountAmount };
+  }
+
   // UC14 — Apply Discount Code
   async applyDiscount(id: string, dto: ApplyDiscountDto, customerId: string): Promise<Booking> {
     // 1. Find booking and verify ownership
@@ -862,60 +955,9 @@ export class BookingService {
       throw new BadRequestException('A discount code has already been applied to this booking');
     }
 
-    // 4. Look up discount code with its parent promotion
-    const discountCode = await this.discountCodeRepo.findOne({
-      where: { code: dto.code },
-      relations: ['promotion'],
-    });
-    if (!discountCode) throw new NotFoundException(`Discount code "${dto.code}" not found`);
-
-    const promotion = discountCode.promotion!;
-
-    // 5. Validate discount code status
-    if (discountCode.status !== DiscountCodeStatus.Active) {
-      throw new BadRequestException(`Discount code "${dto.code}" is not active`);
-    }
-
-    // 6. Validate promotion is active and within date range
-    const now = new Date();
-    if (promotion.status !== PromotionStatus.Active || now < promotion.startsAt || now > promotion.endsAt) {
-      throw new BadRequestException(`Promotion associated with code "${dto.code}" is not currently active`);
-    }
-
-    // 7. Validate branch restriction (null = system-wide)
-    if (promotion.branchId && promotion.branchId !== booking.branchId) {
-      throw new BadRequestException('This discount code is not valid at this branch');
-    }
-
-    // 10. Check per-customer usage limit (read-only, pre-check)
-    if (discountCode.usageLimitPerCustomer !== null) {
-      const customerUses = await this.bookingRepo.count({ where: { customerId, discountCodeId: discountCode.id } });
-      if (customerUses >= discountCode.usageLimitPerCustomer) {
-        throw new BadRequestException('You have already used this discount code the maximum number of times');
-      }
-    }
-
-    // 11. Check minimum order amount
+    // 4-12. Look up + validate discount code/promotion and compute the discount amount
     const subtotal = parseFloat(booking.subtotalAmount as unknown as string);
-    if (promotion.minOrderAmount !== null) {
-      const minOrder = parseFloat(promotion.minOrderAmount as unknown as string);
-      if (subtotal < minOrder) {
-        throw new BadRequestException(`Order total must be at least ${minOrder} to use this discount code`);
-      }
-    }
-
-    // 12. Calculate discount amount (pure computation, safe outside tx)
-    const discountValue = parseFloat(promotion.discountValue as unknown as string);
-    let discountAmount: number;
-    if (promotion.discountType === DiscountType.FixedAmount) {
-      discountAmount = Math.min(discountValue, subtotal);
-    } else {
-      discountAmount = (subtotal * discountValue) / 100;
-      if (promotion.maxDiscountAmount !== null) {
-        discountAmount = Math.min(discountAmount, parseFloat(promotion.maxDiscountAmount as unknown as string));
-      }
-    }
-    discountAmount = Math.round(discountAmount * 100) / 100;
+    const { discountCode, promotion, discountAmount } = await this.resolveDiscountCode(dto.code, booking.branchId, customerId, subtotal);
 
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
 
@@ -1006,20 +1048,23 @@ export class BookingService {
     if (startDate && endDate) {
       const start = new Date(`${startDate}T00:00:00+07:00`);
       const end = new Date(`${endDate}T23:59:59.999+07:00`);
-      qb.andWhere('b.startTime >= :start', { start })
-        .andWhere('b.startTime <= :end', { end });
+      qb.andWhere('b.startTime >= :start', { start }).andWhere('b.startTime <= :end', { end });
     } else if (date) {
       const dayStart = new Date(`${date}T00:00:00+07:00`);
       const dayEnd = new Date(`${date}T23:59:59.999+07:00`);
-      qb.andWhere('b.startTime >= :dayStart', { dayStart })
-        .andWhere('b.startTime <= :dayEnd', { dayEnd });
+      qb.andWhere('b.startTime >= :dayStart', { dayStart }).andWhere('b.startTime <= :dayEnd', { dayEnd });
     }
 
     const bookings = await qb.getMany();
     return this.attachServices(bookings);
   }
 
-  async findOne(id: string, requesterId: string, requesterRole: string, requesterBranchId?: string | null): Promise<Booking & { services: BookingServiceEntity[] }> {
+  async findOne(
+    id: string,
+    requesterId: string,
+    requesterRole: string,
+    requesterBranchId?: string | null,
+  ): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
@@ -1126,7 +1171,7 @@ export class BookingService {
       throw new ConflictException('No technician is available for the selected time slot. Please choose another time.');
     }
 
-    const techIds = technicians.map(t => t.userId);
+    const techIds = technicians.map((t) => t.userId);
 
     // Pre-load shifts and bookings for all technicians (BUG-046: replaces per-tech DB queries)
     const [coveredShifts, overlappingBookings] = await Promise.all([
@@ -1149,9 +1194,9 @@ export class BookingService {
     ]);
 
     for (const technician of technicians) {
-      const isScheduled = coveredShifts.some(s => s.staffId === technician.userId);
+      const isScheduled = coveredShifts.some((s) => s.staffId === technician.userId);
       if (!isScheduled) continue;
-      const hasOverlap = overlappingBookings.some(b => b.technicianId === technician.userId);
+      const hasOverlap = overlappingBookings.some((b) => b.technicianId === technician.userId);
       if (!hasOverlap) return technician.userId;
     }
 
@@ -1207,7 +1252,12 @@ export class BookingService {
     }
   }
 
-  async assignRoom(id: string, room: string | null, requesterId: string, requesterRole: string): Promise<Booking & { services: BookingServiceEntity[] }> {
+  async assignRoom(
+    id: string,
+    room: string | null,
+    requesterId: string,
+    requesterRole: string,
+  ): Promise<Booking & { services: BookingServiceEntity[] }> {
     const booking = await this.bookingRepo.findOne({ where: { id }, relations: ['customer', 'technician'] });
     if (!booking) throw new NotFoundException(`Booking ${id} not found`);
 
