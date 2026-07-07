@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import * as bcrypt from 'bcryptjs';
@@ -17,9 +17,11 @@ export class OtpService {
     private readonly otpRepo: Repository<OtpVerification>,
   ) {}
 
-  async createOtp(userId: string, target: string, targetType: 'email' | 'phone', purpose: string): Promise<string> {
+  async createOtp(userId: string, target: string, targetType: 'email' | 'phone', purpose: string, manager?: EntityManager): Promise<string> {
+    const repo = manager ? manager.getRepository(OtpVerification) : this.otpRepo;
+
     // Invalidate any pending OTPs for this target + purpose before issuing a new one
-    await this.otpRepo
+    await repo
       .createQueryBuilder()
       .delete()
       .from(OtpVerification)
@@ -32,13 +34,15 @@ export class OtpService {
     const otpHash = await bcrypt.hash(otp, 10);
     const expiresAt = new Date(Date.now() + this.OTP_TTL_MINUTES * 60 * 1000);
 
-    await this.otpRepo.save(this.otpRepo.create({ userId, target, targetType, purpose, otpHash, expiresAt, verifiedAt: null, attemptCount: 0 }));
+    await repo.save(repo.create({ userId, target, targetType, purpose, otpHash, expiresAt, verifiedAt: null, attemptCount: 0 }));
 
     return otp;
   }
 
-  async verifyOtp(target: string, purpose: string, otp: string): Promise<void> {
-    const record = await this.otpRepo
+  async verifyOtp(target: string, purpose: string, otp: string, manager?: EntityManager): Promise<void> {
+    const repo = manager ? manager.getRepository(OtpVerification) : this.otpRepo;
+
+    const record = await repo
       .createQueryBuilder('otp')
       .addSelect('otp.otpHash')
       .where('otp.target = :target', { target })
@@ -63,14 +67,14 @@ export class OtpService {
     }
 
     // Increment before comparing so a crash mid-check still counts
-    await this.otpRepo.increment({ id: record.id }, 'attemptCount', 1);
+    await repo.increment({ id: record.id }, 'attemptCount', 1);
 
     const matches = await bcrypt.compare(otp, record.otpHash);
     if (!matches) {
       throw new HttpException({ code: ERROR_CODES.OTP_INVALID, message: 'Invalid OTP code' }, HttpStatus.BAD_REQUEST);
     }
 
-    await this.otpRepo.update(record.id, { verifiedAt: new Date() });
+    await repo.update(record.id, { verifiedAt: new Date() });
   }
 
   private generateCode(): string {
