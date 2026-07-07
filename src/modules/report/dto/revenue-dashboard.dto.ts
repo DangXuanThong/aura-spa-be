@@ -5,6 +5,8 @@ export enum TrendGranularity {
   Day = 'day',
   Week = 'week',
   Month = 'month',
+  Quarter = 'quarter',
+  Year = 'year',
 }
 
 export class BranchRevenueSummaryDto {
@@ -50,6 +52,14 @@ export class RevenueDashboardDto {
 
   @ApiProperty({ example: 125000.0 })
   totalRevenue!: number;
+
+  @ApiProperty({
+    example: 125000.0,
+    description:
+      // eslint-disable-next-line max-len
+      'System-wide profit. Currently equal to totalRevenue as a placeholder — cost tracking (materials, staff commission, overhead) is not yet implemented.',
+  })
+  systemProfit!: number;
 
   @ApiProperty({ example: 120 })
   totalCompletedBookings!: number;
