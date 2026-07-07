@@ -16,6 +16,7 @@ import { BookingService } from './booking.service';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { UserModule } from 'src/modules/user/user.module';
+import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UserModule } from 'src/modules/user/user.module';
       BranchStaff,
       ScheduleRequest,
       Service,
+      StaffSchedule,
       DiscountCode,
       Promotion,
     ]),
