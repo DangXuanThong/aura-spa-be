@@ -370,14 +370,14 @@ export class SeederService implements OnApplicationBootstrap {
 
     try {
       this.logger.log('Seeding dynamic rosters and reviews for all branches...');
-      
-      const pwdRes = await queryRunner.query("SELECT password_hash FROM users WHERE role = 'staff' LIMIT 1");
-      const passwordHash = pwdRes[0]?.password_hash || await bcrypt.hash('Staff123!', 12);
 
-      const branches = await queryRunner.query("SELECT id, name, code FROM branches");
+      const pwdRes = await queryRunner.query("SELECT password_hash FROM users WHERE role = 'staff' LIMIT 1");
+      const passwordHash = pwdRes[0]?.password_hash || (await bcrypt.hash('Staff123!', 12));
+
+      const branches = await queryRunner.query('SELECT id, name, code FROM branches');
       const custRes = await queryRunner.query("SELECT id FROM users WHERE role = 'customer' LIMIT 1");
       const customerId = custRes[0]?.id;
-      const svcRes = await queryRunner.query("SELECT id FROM services LIMIT 1");
+      const svcRes = await queryRunner.query('SELECT id FROM services LIMIT 1');
       const serviceId = svcRes[0]?.id;
 
       for (const branch of branches) {
@@ -387,7 +387,7 @@ export class SeederService implements OnApplicationBootstrap {
            FROM branch_staff bs
            JOIN users u ON bs.user_id = u.id
            WHERE bs.branch_id = $1 AND bs.position = 'technician' AND bs.status = 'active'`,
-          [branch.id]
+          [branch.id],
         );
 
         const branchLower = branch.code.toLowerCase().replace('-', '');
@@ -396,7 +396,7 @@ export class SeederService implements OnApplicationBootstrap {
           `Tech ${branch.code} B`,
           `Tech ${branch.code} C`,
           `Tech ${branch.code} D`,
-          `Tech ${branch.code} E`
+          `Tech ${branch.code} E`,
         ];
 
         const updatedTechs = [...techs];
@@ -408,24 +408,24 @@ export class SeederService implements OnApplicationBootstrap {
           const phone = `090${branch.id}${nextIndex}12345`;
 
           let userId;
-          const userExist = await queryRunner.query("SELECT id FROM users WHERE email = $1", [email]);
+          const userExist = await queryRunner.query('SELECT id FROM users WHERE email = $1', [email]);
           if (userExist.length > 0) {
             userId = userExist[0].id;
           } else {
             const userRes = await queryRunner.query(
               `INSERT INTO users (email, password_hash, full_name, phone, role, status, created_at, updated_at)
                VALUES ($1, $2, $3, $4, 'staff', 'active', NOW(), NOW()) RETURNING id`,
-              [email, passwordHash, fullName, phone]
+              [email, passwordHash, fullName, phone],
             );
             userId = userRes[0].id;
           }
 
-          const assignExist = await queryRunner.query("SELECT id FROM branch_staff WHERE user_id = $1 AND branch_id = $2", [userId, branch.id]);
+          const assignExist = await queryRunner.query('SELECT id FROM branch_staff WHERE user_id = $1 AND branch_id = $2', [userId, branch.id]);
           if (assignExist.length === 0) {
             await queryRunner.query(
               `INSERT INTO branch_staff (branch_id, user_id, position, status, staff_code, start_date, created_at, updated_at)
                VALUES ($1, $2, 'technician', 'active', $3, NOW(), NOW(), NOW())`,
-              [branch.id, userId, `TECH-${branch.code}-${String.fromCharCode(65 + nextIndex)}`]
+              [branch.id, userId, `TECH-${branch.code}-${String.fromCharCode(65 + nextIndex)}`],
             );
           }
 
@@ -434,17 +434,14 @@ export class SeederService implements OnApplicationBootstrap {
 
         // Get manager
         const mgrRes = await queryRunner.query(
-          `SELECT user_id FROM branch_staff WHERE branch_id = $1 AND position = 'manager' AND status = 'active' LIMIT 1`,
-          [branch.id]
+          "SELECT user_id FROM branch_staff WHERE branch_id = $1 AND position = 'manager' AND status = 'active' LIMIT 1",
+          [branch.id],
         );
         const managerId = mgrRes[0]?.user_id || '1';
 
         // Check if schedules already exist for these techs
-        const scheduleCheck = await queryRunner.query(
-          "SELECT COUNT(*) FROM staff_schedules WHERE branch_id = $1",
-          [branch.id]
-        );
-        const scheduleCount = parseInt(scheduleCheck[0].count);
+        const scheduleCheck = await queryRunner.query('SELECT COUNT(*) FROM staff_schedules WHERE branch_id = $1', [branch.id]);
+        const scheduleCount = parseInt(scheduleCheck[0].count, 10);
 
         if (scheduleCount === 0) {
           // Register shifts from July 4th to July 12th
@@ -459,16 +456,18 @@ export class SeederService implements OnApplicationBootstrap {
             const end = new Date(`${dateStr}T${endHour.toString().padStart(2, '0')}:00:00+07:00`);
 
             const reqRes = await queryRunner.query(
+              // eslint-disable-next-line max-len
               `INSERT INTO schedule_requests (staff_id, branch_id, request_type, status, requested_start, requested_end, reason, reviewed_by, reviewed_at, created_at, updated_at)
                VALUES ($1, $2, 'work_shift', 'approved', $3, $4, $5, $6, NOW(), NOW(), NOW()) RETURNING id`,
-              [staffId, branch.id, start, end, label, managerId]
+              [staffId, branch.id, start, end, label, managerId],
             );
             const reqId = reqRes[0].id;
 
             await queryRunner.query(
+              // eslint-disable-next-line max-len
               `INSERT INTO staff_schedules (staff_id, branch_id, start_time, end_time, schedule_type, status, source_request_id, created_by, created_at, updated_at)
                VALUES ($1, $2, $3, $4, 'working', 'active', $5, $6, NOW(), NOW())`,
-              [staffId, branch.id, start, end, reqId, managerId]
+              [staffId, branch.id, start, end, reqId, managerId],
             );
           };
 
@@ -488,40 +487,42 @@ export class SeederService implements OnApplicationBootstrap {
         // Seed reviews for new techs
         if (customerId && serviceId) {
           for (const tech of updatedTechs) {
-            const reviewCheck = await queryRunner.query("SELECT COUNT(*) FROM reviews WHERE technician_id = $1", [tech.id]);
-            const reviewCount = parseInt(reviewCheck[0].count);
-            
+            const reviewCheck = await queryRunner.query('SELECT COUNT(*) FROM reviews WHERE technician_id = $1', [tech.id]);
+            const reviewCount = parseInt(reviewCheck[0].count, 10);
+
             if (reviewCount === 0) {
               const seedRatings = [
                 [5, 4, 5],
                 [4, 5, 4],
                 [5, 5, 5],
                 [4, 4, 5],
-                [5, 5, 4]
-              ][parseInt(tech.id) % 5];
+                [5, 5, 4],
+              ][parseInt(tech.id, 10) % 5];
 
               for (let i = 0; i < seedRatings.length; i++) {
                 const rating = seedRatings[i];
-                
+
                 const bookingRes = await queryRunner.query(
+                  // eslint-disable-next-line max-len
                   `INSERT INTO bookings (customer_id, branch_id, technician_id, start_time, end_time, status, source, subtotal_amount, discount_amount, deposit_required_amount, paid_amount, remaining_amount, created_at, updated_at)
-                   VALUES ($1, $2, $3, NOW() - INTERVAL '1 day', NOW() - INTERVAL '23 hours', 'completed', 'online', 100000, 0, 0, 100000, 0, NOW(), NOW()) RETURNING id`,
-                  [customerId, branch.id, tech.id]
+                   VALUES ($1, $2, $3, NOW() - INTERVAL '1 day', NOW() - INTERVAL '23 hours', 'completed', 'online', 100000, 0, 0, 100000, 0, NOW(), NOW())RETURNING id`,
+                  [customerId, branch.id, tech.id],
                 );
                 const bookingId = bookingRes[0].id;
 
                 const comment = [
-                  "Dịch vụ rất tốt, nhân viên thân thiện chu đáo!",
-                  "Kỹ thuật viên tay nghề cao, làm rất êm ái.",
-                  "Rất hài lòng với chất lượng phục vụ tại đây.",
-                  "Nhân viên làm nhiệt tình, chu đáo sạch sẽ.",
-                  "Tuyệt vời, sẽ quay lại lần sau!"
-                ][(parseInt(tech.id) + i) % 5];
+                  'Dịch vụ rất tốt, nhân viên thân thiện chu đáo!',
+                  'Kỹ thuật viên tay nghề cao, làm rất êm ái.',
+                  'Rất hài lòng với chất lượng phục vụ tại đây.',
+                  'Nhân viên làm nhiệt tình, chu đáo sạch sẽ.',
+                  'Tuyệt vời, sẽ quay lại lần sau!',
+                ][(parseInt(tech.id, 10) + i) % 5];
 
                 await queryRunner.query(
+                  // eslint-disable-next-line max-len
                   `INSERT INTO reviews (customer_id, booking_id, branch_id, service_id, technician_id, rating, comment, status, created_at, updated_at)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', NOW(), NOW())`,
-                  [customerId, bookingId, branch.id, serviceId, tech.id, rating, comment]
+                  [customerId, bookingId, branch.id, serviceId, tech.id, rating, comment],
                 );
               }
             }
