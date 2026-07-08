@@ -14,7 +14,15 @@ export interface LoyaltySummaryDto {
   pointsBalance: number;
   lifetimePoints: number;
   earnRateVnd: number;
+  redeemValueVnd: number;
   nextTier: string | null;
   nextTierPoints: number | null;
   transactions: LoyaltyTransactionResponseDto[];
+}
+
+export interface RedeemPointsResponseDto {
+  pointsRedeemed: number;
+  valueVnd: number;
+  pointsBalance: number;
+  tier: string;
 }

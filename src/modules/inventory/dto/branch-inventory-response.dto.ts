@@ -22,6 +22,9 @@ export class InventoryItemSummaryDto {
   @ApiPropertyOptional({ example: 100 })
   minStockLevel!: number | null;
 
+  @ApiProperty({ example: 180000 })
+  unitCost!: number;
+
   @ApiProperty({ enum: InventoryItemStatus, example: InventoryItemStatus.Active })
   status!: InventoryItemStatus;
 }

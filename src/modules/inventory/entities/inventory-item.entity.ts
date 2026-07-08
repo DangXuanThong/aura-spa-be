@@ -24,6 +24,9 @@ export class InventoryItem {
   @Column({ name: 'min_stock_level', type: 'decimal', precision: 10, scale: 3, nullable: true })
   minStockLevel!: number | null;
 
+  @Column({ name: 'unit_cost', type: 'decimal', precision: 14, scale: 2, default: 0, nullable: false })
+  unitCost!: number;
+
   @Column({
     type: 'enum',
     enum: InventoryItemStatus,

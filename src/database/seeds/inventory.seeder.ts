@@ -38,6 +38,7 @@ export class InventorySeeder {
             unit: def.unit,
             category: def.category,
             minStockLevel: def.minStockLevel,
+            unitCost: def.unitCost,
             status: def.status,
           }),
         );
@@ -48,6 +49,7 @@ export class InventorySeeder {
           unit: def.unit,
           category: def.category,
           minStockLevel: def.minStockLevel,
+          unitCost: def.unitCost,
           status: def.status,
         });
       }

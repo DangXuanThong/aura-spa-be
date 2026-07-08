@@ -17,6 +17,7 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { UserModule } from 'src/modules/user/user.module';
 import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
+import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.enti
       StaffSchedule,
       DiscountCode,
       Promotion,
+      LoyaltyAccount,
     ]),
     AuthModule,
     UserModule,

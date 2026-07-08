@@ -632,6 +632,16 @@ export class PaymentService {
         status: newStatus,
       });
 
+      await this.loyaltyService.revokeForRefund({
+        customerId: locked.customerId,
+        bookingId: locked.bookingId,
+        paymentId: locked.id,
+        originalAmount: lockedOriginal,
+        totalRefundedAmount: newRefunded,
+        reason: dto.reason,
+        manager,
+      });
+
       if (locked.invoiceId) {
         const invoice = await manager.findOne(Invoice, {
           where: { id: locked.invoiceId },

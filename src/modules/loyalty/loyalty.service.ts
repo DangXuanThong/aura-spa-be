@@ -1,12 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { LoyaltyAccount } from './entities/loyalty-account.entity';
 import { LoyaltyTransaction } from './entities/loyalty-transaction.entity';
 import { LoyaltyTransactionType } from './enums/loyalty-transaction-type.enum';
-import { LoyaltySummaryDto } from './dto/loyalty-summary.dto';
+import { LoyaltySummaryDto, RedeemPointsResponseDto } from './dto/loyalty-summary.dto';
 
 const EARN_RATE_VND = 10000;
+const REDEEM_VALUE_VND = 1000;
 const TIERS = [
   { name: 'Aura Platinum', minPoints: 3000 },
   { name: 'Aura Gold', minPoints: 1000 },
@@ -20,6 +21,16 @@ export interface AwardPaymentPointsInput {
   amount: number;
   source: string;
   description?: string | null;
+  manager?: EntityManager;
+}
+
+export interface RevokeRefundPointsInput {
+  customerId: string;
+  bookingId?: string | null;
+  paymentId: string;
+  originalAmount: number;
+  totalRefundedAmount: number;
+  reason?: string | null;
   manager?: EntityManager;
 }
 
@@ -48,6 +59,7 @@ export class LoyaltyService {
       pointsBalance: account.pointsBalance,
       lifetimePoints: account.lifetimePoints,
       earnRateVnd: EARN_RATE_VND,
+      redeemValueVnd: REDEEM_VALUE_VND,
       nextTier: nextTier?.name ?? null,
       nextTierPoints: nextTier ? Math.max(0, nextTier.minPoints - account.lifetimePoints) : null,
       transactions: transactions.map((transaction) => ({
@@ -96,6 +108,126 @@ export class LoyaltyService {
           points,
           source: input.source,
           description: input.description ?? null,
+        }),
+      );
+    };
+
+    if (input.manager) {
+      await runner(input.manager);
+      return;
+    }
+
+    await this.dataSource.transaction(runner);
+  }
+
+  async redeemPoints(customerId: string, points: number, description?: string | null): Promise<RedeemPointsResponseDto> {
+    if (points <= 0) {
+      throw new BadRequestException('Points to redeem must be greater than zero');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const account = await this.getOrCreateAccount(customerId, manager);
+      const lockedAccount = await manager.findOne(LoyaltyAccount, {
+        where: { id: account.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedAccount) {
+        throw new BadRequestException('Loyalty account not found');
+      }
+
+      if (lockedAccount.pointsBalance < points) {
+        throw new BadRequestException('Not enough loyalty points to redeem');
+      }
+
+      const nextBalance = lockedAccount.pointsBalance - points;
+      await manager.update(LoyaltyAccount, lockedAccount.id, {
+        pointsBalance: nextBalance,
+      });
+
+      await manager.getRepository(LoyaltyTransaction).save(
+        manager.getRepository(LoyaltyTransaction).create({
+          accountId: lockedAccount.id,
+          customerId,
+          bookingId: null,
+          paymentId: null,
+          type: LoyaltyTransactionType.Redeem,
+          points: -points,
+          source: 'points_redemption',
+          description: description ?? `Redeemed ${points} loyalty points`,
+        }),
+      );
+
+      return {
+        pointsRedeemed: points,
+        valueVnd: points * REDEEM_VALUE_VND,
+        pointsBalance: nextBalance,
+        tier: lockedAccount.tier,
+      };
+    });
+  }
+
+  async revokeForRefund(input: RevokeRefundPointsInput): Promise<void> {
+    if (!input.customerId || !input.paymentId || input.originalAmount <= 0 || input.totalRefundedAmount <= 0) {
+      return;
+    }
+
+    const runner = async (manager: EntityManager) => {
+      const transactionRepo = manager.getRepository(LoyaltyTransaction);
+      const earnTransaction = await transactionRepo.findOne({
+        where: {
+          paymentId: input.paymentId,
+          type: LoyaltyTransactionType.Earn,
+        },
+      });
+      if (!earnTransaction || earnTransaction.points <= 0) {
+        return;
+      }
+
+      const refundSource = `refund:${input.paymentId}`;
+      const existingRefundRows = await transactionRepo.find({
+        where: {
+          customerId: input.customerId,
+          source: refundSource,
+          type: LoyaltyTransactionType.Adjust,
+        },
+      });
+      const alreadyRevoked = existingRefundRows.reduce((sum, transaction) => sum + Math.abs(transaction.points), 0);
+      const refundRatio = Math.min(1, input.totalRefundedAmount / input.originalAmount);
+      const shouldHaveRevoked = Math.floor(earnTransaction.points * refundRatio);
+      const pointsToRevoke = Math.max(0, Math.min(earnTransaction.points - alreadyRevoked, shouldHaveRevoked - alreadyRevoked));
+
+      if (pointsToRevoke <= 0) {
+        return;
+      }
+
+      const account = await this.getOrCreateAccount(input.customerId, manager);
+      const lockedAccount = await manager.findOne(LoyaltyAccount, {
+        where: { id: account.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedAccount) {
+        return;
+      }
+
+      const nextLifetimePoints = Math.max(0, lockedAccount.lifetimePoints - pointsToRevoke);
+      const nextBalance = Math.max(0, lockedAccount.pointsBalance - pointsToRevoke);
+
+      await manager.update(LoyaltyAccount, lockedAccount.id, {
+        pointsBalance: nextBalance,
+        lifetimePoints: nextLifetimePoints,
+        tier: this.resolveTier(nextLifetimePoints),
+      });
+
+      await transactionRepo.save(
+        transactionRepo.create({
+          accountId: lockedAccount.id,
+          customerId: input.customerId,
+          bookingId: input.bookingId ?? earnTransaction.bookingId,
+          paymentId: null,
+          type: LoyaltyTransactionType.Adjust,
+          points: -pointsToRevoke,
+          source: refundSource,
+          description: input.reason ?? `Reversed loyalty points for refunded payment #${input.paymentId}`,
         }),
       );
     };

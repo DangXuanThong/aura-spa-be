@@ -88,6 +88,7 @@ export class InventoryController {
 
   // ── UC30: Get service inventory requirements (recipes) ────────────────────────
   @Get('requirements')
+  @Roles(UserRole.Manager, UserRole.Owner)
   @ApiOkResponse({ description: 'Service inventory requirements list' })
   async getRequirements(): Promise<any[]> {
     return this.inventoryService.getRequirements();

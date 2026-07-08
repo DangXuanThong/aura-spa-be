@@ -47,9 +47,11 @@ import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course
 import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
 import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
+import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 const ROOM_OCCUPYING_STATUSES = [BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
+const CUSTOMER_TIER_ORDER = ['Aura Member', 'Aura Gold', 'Aura Platinum'];
 
 function normalizeVietnamPhone(phone: string): string {
   const compact = phone.replace(/[^\d+]/g, '');
@@ -81,6 +83,8 @@ export class BookingService {
     private readonly discountCodeRepo: Repository<DiscountCode>,
     @InjectRepository(Promotion)
     private readonly promotionRepo: Repository<Promotion>,
+    @InjectRepository(LoyaltyAccount)
+    private readonly loyaltyAccountRepo: Repository<LoyaltyAccount>,
     private readonly userService: UserService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
@@ -879,6 +883,7 @@ export class BookingService {
     branchId: string,
     customerId: string,
     subtotal: number,
+    excludeBookingId?: string,
   ): Promise<{ discountCode: DiscountCode; promotion: Promotion; discountAmount: number }> {
     // Look up discount code with its parent promotion
     const discountCode = await this.discountCodeRepo.findOne({
@@ -904,6 +909,8 @@ export class BookingService {
     if (promotion.branchId && promotion.branchId !== branchId) {
       throw new BadRequestException('This discount code is not valid at this branch');
     }
+
+    await this.assertCustomerPromotionEligibility(promotion, customerId, excludeBookingId);
 
     // Check per-customer usage limit (read-only, pre-check)
     if (discountCode.usageLimitPerCustomer !== null) {
@@ -937,6 +944,52 @@ export class BookingService {
     return { discountCode, promotion, discountAmount };
   }
 
+  private async assertCustomerPromotionEligibility(promotion: Promotion, customerId: string, excludeBookingId?: string): Promise<void> {
+    const hasTierRule = Boolean(promotion.eligibleCustomerTier);
+    const hasPointRule = promotion.minPointsBalance !== null && promotion.minPointsBalance !== undefined;
+
+    if (hasTierRule || hasPointRule) {
+      const account = await this.loyaltyAccountRepo.findOne({ where: { customerId } });
+      const customerTier = account?.tier ?? 'Aura Member';
+      const customerPoints = account?.pointsBalance ?? 0;
+
+      if (promotion.eligibleCustomerTier && !this.isTierAtLeast(customerTier, promotion.eligibleCustomerTier)) {
+        throw new BadRequestException(`This discount code is only available for ${promotion.eligibleCustomerTier} members or higher`);
+      }
+
+      const requiredPoints = promotion.minPointsBalance ?? 0;
+      if (requiredPoints > 0 && customerPoints < requiredPoints) {
+        throw new BadRequestException(`You need at least ${requiredPoints} loyalty points to use this discount code`);
+      }
+    }
+
+    if (promotion.firstBookingOnly) {
+      const query = this.bookingRepo
+        .createQueryBuilder('booking')
+        .where('booking.customerId = :customerId', { customerId })
+        .andWhere('booking.status NOT IN (:...excludedStatuses)', {
+          excludedStatuses: [BookingStatus.Cancelled, BookingStatus.Rescheduled],
+        });
+
+      if (excludeBookingId) {
+        query.andWhere('booking.id != :excludeBookingId', { excludeBookingId });
+      }
+
+      const previousBookings = await query.getCount();
+      if (previousBookings > 0) {
+        throw new BadRequestException('This discount code is only available for first-time customers');
+      }
+    }
+  }
+
+  private isTierAtLeast(customerTier: string, requiredTier: string): boolean {
+    const customerRank = CUSTOMER_TIER_ORDER.indexOf(customerTier);
+    const requiredRank = CUSTOMER_TIER_ORDER.indexOf(requiredTier);
+    if (requiredRank === -1) return true;
+    if (customerRank === -1) return false;
+    return customerRank >= requiredRank;
+  }
+
   // UC14 — Apply Discount Code
   async applyDiscount(id: string, dto: ApplyDiscountDto, customerId: string): Promise<Booking> {
     // 1. Find booking and verify ownership
@@ -957,7 +1010,7 @@ export class BookingService {
 
     // 4-12. Look up + validate discount code/promotion and compute the discount amount
     const subtotal = parseFloat(booking.subtotalAmount as unknown as string);
-    const { discountCode, promotion, discountAmount } = await this.resolveDiscountCode(dto.code, booking.branchId, customerId, subtotal);
+    const { discountCode, promotion, discountAmount } = await this.resolveDiscountCode(dto.code, booking.branchId, customerId, subtotal, id);
 
     const paidAmount = parseFloat(booking.paidAmount as unknown as string);
 
