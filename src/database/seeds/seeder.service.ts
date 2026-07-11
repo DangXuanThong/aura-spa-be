@@ -28,9 +28,9 @@ import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-da
 
 /* eslint-disable max-len -- External image URLs are opaque provider-generated values. */
 const MASSAGE_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuAac7WTbymLJneytGE32jl_6mZs8HB5e7peYvWSICJEjugnfoFn9hqi-Z89SyFX_FtMebEnwXwECz37pkn2Cr_fHOO9Wb3F_ZF9MQ24TsMoETpYV18oDWZxG-ccf2fx3EOv5ICbFAp6UP8d96KPWSPos5eNYJerhenxI06RtryA8-a3xcbE6KnzmpPHQNOFnk7FohSvHeuNE_fm51bo7Rm1tfie71p9cGKfhoQ23o3QoGI76AartLuTxv3vSUEtedpr8RJ-yAAtmRE';
+  'https://images.unsplash.com/photo-1600334129128-685c5582fd35?auto=format&fit=crop&w=1200&q=85';
 const FACIAL_IMAGE =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuDQREwFNHYxXIZc_Yn_u55Mx5xTO5tWoeWj1fytHY7vaVgQVak61Brh-3NckmNeClOZcbXox-os-a_P3-6z_biSz6_DmappUvGWMAl4yDvad51EeTBnVYTtb40VTGZMGuDLxKhiw2XJIbSu_QGi0pf9RncnPN1MwHKMDWBYkFELk51zkOPSh-cz1dV7GUpdLvgnvqnhI3HoaitDtjL26OblmlQaSRYoTVZH-zlJ_xHo-9XRxIVsXHPCavGYDhF1jgQGrETa1urSPkg';
+  'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1200&q=85';
 const WELLNESS_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCm_drm21aKgARIN6cbluYOTLae7X7hdcc6zfRCBz4fbAwam5NbcMAGruyiwBUzRptvuHzW1jydIqiyO1ISxqpBUKOlyNYpQRGWXN_Qo-UPflyeE2x253FCaHL-xgHPDgbZmHq7C7G4T4wI2qv4tEilcqDDfvyxmWkXI7qaqUdiJioYHvvNLgRl7XlEyP7bTW7WlAXPfsdOJeFxCX97OCvZfhYGFizo1mEguppmk6ZNaq_HdZ4qWvpoAhYo5rcxhfwfcJwS5e9dpJ8';
 const COUPLE_IMAGE =
@@ -100,6 +100,58 @@ const ADDITIONAL_PRESENTATION_SERVICES: Partial<Service>[] = [
     totalSessions: null,
   },
   {
+    code: 'SVC-MASSAGE-NECK-SHOULDER-001',
+    name: 'Massage Cổ Vai Gáy Chuyên Sâu',
+    slug: 'massage-co-vai-gay-chuyen-sau',
+    category: 'Massage',
+    description: 'Tập trung vùng cổ, vai và lưng trên cho khách ngồi máy tính nhiều, giúp giảm căng cơ và thư giãn đầu óc.',
+    imageUrl: MASSAGE_IMAGE,
+    defaultDurationMinutes: 45,
+    defaultPrice: 650000,
+    status: ServiceStatus.Active,
+    isMultiSession: false,
+    totalSessions: null,
+  },
+  {
+    code: 'SVC-MASSAGE-FOOT-HERBAL-001',
+    name: 'Massage Chân Thảo Mộc',
+    slug: 'massage-chan-thao-moc',
+    category: 'Massage',
+    description: 'Ngâm chân thảo mộc ấm kết hợp bấm huyệt nhẹ, phù hợp sau ngày dài di chuyển hoặc đứng nhiều.',
+    imageUrl: MASSAGE_IMAGE,
+    defaultDurationMinutes: 45,
+    defaultPrice: 550000,
+    status: ServiceStatus.Active,
+    isMultiSession: false,
+    totalSessions: null,
+  },
+  {
+    code: 'SVC-FACIAL-HYDRATION-BOOST-001',
+    name: 'Facial Cấp Ẩm Nhanh Hydration Boost',
+    slug: 'facial-cap-am-nhanh-hydration-boost',
+    category: 'Facial',
+    description: 'Làm sạch, cân bằng và cấp ẩm nhanh cho da thiếu nước, phù hợp khách cần phục hồi làn da trong thời gian ngắn.',
+    imageUrl: FACIAL_IMAGE,
+    defaultDurationMinutes: 50,
+    defaultPrice: 780000,
+    status: ServiceStatus.Active,
+    isMultiSession: false,
+    totalSessions: null,
+  },
+  {
+    code: 'SVC-BODY-GLOW-SCRUB-001',
+    name: 'Tẩy Tế Bào Chết & Dưỡng Body Glow',
+    slug: 'tay-te-bao-chet-duong-body-glow',
+    category: 'Body',
+    description: 'Làm sạch lớp sừng, dưỡng ẩm và hỗ trợ da cơ thể mềm mịn, đều màu hơn sau một buổi chăm sóc.',
+    imageUrl: WELLNESS_IMAGE,
+    defaultDurationMinutes: 60,
+    defaultPrice: 880000,
+    status: ServiceStatus.Active,
+    isMultiSession: false,
+    totalSessions: null,
+  },
+  {
     code: 'SVC-PACKAGE-001',
     name: 'Gói "Tâm An" Serenity Journey',
     slug: 'goi-tam-an-serenity-journey',
@@ -124,6 +176,62 @@ const ADDITIONAL_PRESENTATION_SERVICES: Partial<Service>[] = [
     status: ServiceStatus.Active,
     isMultiSession: false,
     totalSessions: null,
+  },
+  {
+    code: 'SVC-TREATMENT-RADIANCE-001',
+    name: 'Liệu trình phục hồi da Radiance',
+    slug: 'lieu-trinh-phuc-hoi-da-radiance',
+    category: 'Treatment',
+    description:
+      'Liệu trình 5 buổi dành cho da khô, xỉn màu và thiếu ẩm. Tập trung cấp ẩm sâu, phục hồi hàng rào bảo vệ da và cải thiện độ sáng mịn.',
+    imageUrl: FACIAL_IMAGE,
+    defaultDurationMinutes: 75,
+    defaultPrice: 1250000,
+    status: ServiceStatus.Active,
+    isMultiSession: true,
+    totalSessions: 5,
+  },
+  {
+    code: 'SVC-TREATMENT-NECK-SHOULDER-001',
+    name: 'Liệu trình giảm căng cơ cổ vai gáy',
+    slug: 'lieu-trinh-giam-cang-co-co-vai-gay',
+    category: 'Treatment',
+    description:
+      'Liệu trình 3 buổi cho dân văn phòng hoặc người ngồi máy tính nhiều. Kết hợp massage cổ vai gáy, giãn cơ và thư giãn thần kinh để giảm mỏi, hỗ trợ ngủ tốt hơn.',
+    imageUrl: MASSAGE_IMAGE,
+    defaultDurationMinutes: 60,
+    defaultPrice: 900000,
+    status: ServiceStatus.Active,
+    isMultiSession: true,
+    totalSessions: 3,
+  },
+  {
+    code: 'SVC-TREATMENT-SERENITY-001',
+    name: 'Liệu trình thư giãn toàn thân Serenity',
+    slug: 'lieu-trinh-thu-gian-toan-than-serenity',
+    category: 'Treatment',
+    description:
+      'Liệu trình 4 buổi sử dụng massage Thụy Điển và hương liệu nhẹ cho khách stress, mất ngủ nhẹ hoặc cần phục hồi năng lượng.',
+    imageUrl: MASSAGE_IMAGE,
+    defaultDurationMinutes: 90,
+    defaultPrice: 1350000,
+    status: ServiceStatus.Active,
+    isMultiSession: true,
+    totalSessions: 4,
+  },
+  {
+    code: 'SVC-TREATMENT-COUPLE-RETREAT-001',
+    name: 'Liệu trình Couple Retreat',
+    slug: 'lieu-trinh-couple-retreat',
+    category: 'Treatment',
+    description:
+      'Liệu trình 2 buổi dành cho cặp đôi hoặc khách muốn trải nghiệm thư giãn cùng người thân trong không gian riêng tư, cao cấp.',
+    imageUrl: COUPLE_IMAGE,
+    defaultDurationMinutes: 120,
+    defaultPrice: 2600000,
+    status: ServiceStatus.Active,
+    isMultiSession: true,
+    totalSessions: 2,
   },
 ];
 
