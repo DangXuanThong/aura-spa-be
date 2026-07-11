@@ -250,6 +250,25 @@ export class PaymentService {
     now: Date,
   ): Promise<void> {
     for (const bookingService of bookingServices) {
+      const linkedSession = await manager.findOne(TreatmentSession, {
+        where: { bookingId: booking.id, serviceId: bookingService.serviceId },
+        relations: ['treatmentCourse'],
+      });
+
+      if (linkedSession) {
+        if (linkedSession.status !== TreatmentSessionStatus.Completed) {
+          linkedSession.status = TreatmentSessionStatus.Completed;
+          linkedSession.staffId = booking.technicianId ?? staffId;
+          linkedSession.completedAt = now;
+          await manager.save(TreatmentSession, linkedSession);
+
+          if (linkedSession.treatmentCourse) {
+            await this.recalculateTreatmentCourse(manager, linkedSession.treatmentCourse);
+          }
+        }
+        continue;
+      }
+
       // Find active TreatmentCourse for this customer and service
       const activeCourse = await manager.findOne(TreatmentCourse, {
         where: {
@@ -282,14 +301,7 @@ export class PaymentService {
           session.completedAt = now;
           await manager.save(TreatmentSession, session);
 
-          const used = parseFloat(activeCourse.usedSessions as any) + 1;
-          const remaining = Math.max(0, parseFloat(activeCourse.totalSessions as any) - used);
-          activeCourse.usedSessions = used;
-          activeCourse.remainingSessions = remaining;
-          if (remaining <= 0) {
-            activeCourse.status = TreatmentCourseStatus.Completed;
-          }
-          await manager.save(TreatmentCourse, activeCourse);
+          await this.recalculateTreatmentCourse(manager, activeCourse);
         }
       } else {
         // No active course. Let's see if this service is a multi-session service.
@@ -329,6 +341,26 @@ export class PaymentService {
         }
       }
     }
+  }
+
+  private async recalculateTreatmentCourse(
+    manager: EntityManager,
+    course: TreatmentCourse,
+  ): Promise<void> {
+    const completedSessions = await manager.count(TreatmentSession, {
+      where: {
+        treatmentCourseId: course.id,
+        status: TreatmentSessionStatus.Completed,
+      },
+    });
+
+    const remainingSessions = Math.max(course.totalSessions - completedSessions, 0);
+    course.usedSessions = completedSessions;
+    course.remainingSessions = remainingSessions;
+    if (remainingSessions <= 0) {
+      course.status = TreatmentCourseStatus.Completed;
+    }
+    await manager.save(TreatmentCourse, course);
   }
 
   private async linkDepositPaymentsToInvoice(bookingId: string, invoiceId: string): Promise<void> {

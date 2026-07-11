@@ -18,6 +18,8 @@ import { AuthModule } from 'src/modules/auth/auth.module';
 import { UserModule } from 'src/modules/user/user.module';
 import { StaffSchedule } from 'src/modules/schedule/entities/staff-schedule.entity';
 import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
+import { TreatmentCourse } from 'src/modules/treatment/entities/treatment-course.entity';
+import { TreatmentSession } from 'src/modules/treatment/entities/treatment-session.entity';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.ent
       DiscountCode,
       Promotion,
       LoyaltyAccount,
+      TreatmentCourse,
+      TreatmentSession,
     ]),
     AuthModule,
     UserModule,

@@ -642,7 +642,42 @@ export class BookingService {
       throw new ForbiddenException(`Staff ${staffId} is not an active staff member at this branch`);
     }
 
-    await this.bookingRepo.update(id, { status: BookingStatus.ServiceCompleted, room: null });
+    await this.dataSource.transaction(async (manager) => {
+      await manager.update(Booking, { id }, { status: BookingStatus.ServiceCompleted, room: null });
+
+      const session = await manager.findOne(TreatmentSession, {
+        where: { bookingId: id },
+        relations: ['treatmentCourse'],
+      });
+
+      if (!session || session.status === TreatmentSessionStatus.Completed) return;
+
+      session.status = TreatmentSessionStatus.Completed;
+      session.staffId = staffId;
+      session.completedAt = new Date();
+      if (!session.progressNote) {
+        session.progressNote = 'Buổi trị liệu đã hoàn thành. Hệ thống đã cập nhật tiến độ liệu trình và chuyển lịch sang chờ thanh toán.';
+      }
+      await manager.save(TreatmentSession, session);
+
+      const course = session.treatmentCourse ?? await manager.findOne(TreatmentCourse, { where: { id: session.treatmentCourseId } });
+      if (!course) return;
+
+      const completedSessions = await manager.count(TreatmentSession, {
+        where: {
+          treatmentCourseId: course.id,
+          status: TreatmentSessionStatus.Completed,
+        },
+      });
+      const remainingSessions = Math.max(course.totalSessions - completedSessions, 0);
+
+      course.usedSessions = completedSessions;
+      course.remainingSessions = remainingSessions;
+      if (remainingSessions === 0) {
+        course.status = TreatmentCourseStatus.Completed;
+      }
+      await manager.save(TreatmentCourse, course);
+    });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
   }
@@ -1071,7 +1106,7 @@ export class BookingService {
       order: { startTime: 'DESC' },
       relations: ['customer', 'technician'],
     });
-    return this.attachServices(bookings);
+    return this.attachBookingDetails(bookings);
   }
 
   async findBranchBookings(
@@ -1109,7 +1144,7 @@ export class BookingService {
     }
 
     const bookings = await qb.getMany();
-    return this.attachServices(bookings);
+    return this.attachBookingDetails(bookings);
   }
 
   async findOne(
@@ -1134,7 +1169,7 @@ export class BookingService {
     }
     // Owner has no branch restriction
 
-    const [withServices] = await this.attachServices([booking]);
+    const [withServices] = await this.attachBookingDetails([booking]);
     return withServices;
   }
 
@@ -1166,7 +1201,7 @@ export class BookingService {
     await this.bookingRepo.update(id, { technicianId: dto.newTechnicianId });
 
     const updated = (await this.bookingRepo.findOne({ where: { id } })) as Booking;
-    const [withServices] = await this.attachServices([updated]);
+    const [withServices] = await this.attachBookingDetails([updated]);
     return withServices;
   }
 
@@ -1273,20 +1308,49 @@ export class BookingService {
       .getCount();
   }
 
-  private async attachServices(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[] })[]> {
+  private async attachBookingDetails(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[]; treatmentSession?: any | null })[]> {
     if (bookings.length === 0) return [];
     const ids = bookings.map((b) => b.id);
-    const allServices = await this.bookingServiceRepo.find({
-      where: { bookingId: In(ids) },
-      relations: ['service'],
-    });
+    const [allServices, treatmentSessions] = await Promise.all([
+      this.bookingServiceRepo.find({
+        where: { bookingId: In(ids) },
+        relations: ['service'],
+      }),
+      this.dataSource.getRepository(TreatmentSession).find({
+        where: { bookingId: In(ids) },
+        relations: ['treatmentCourse'],
+      }),
+    ]);
     const servicesByBooking = new Map<string, BookingServiceEntity[]>();
     for (const svc of allServices) {
       const list = servicesByBooking.get(svc.bookingId) ?? [];
       list.push(svc);
       servicesByBooking.set(svc.bookingId, list);
     }
-    return bookings.map((b) => Object.assign(b, { services: servicesByBooking.get(b.id) ?? [] }));
+    const treatmentByBooking = new Map<string, TreatmentSession>();
+    for (const session of treatmentSessions) {
+      if (session.bookingId) treatmentByBooking.set(session.bookingId, session);
+    }
+
+    return bookings.map((b) => {
+      const session = treatmentByBooking.get(b.id);
+      const course = session?.treatmentCourse;
+      return Object.assign(b, {
+        services: servicesByBooking.get(b.id) ?? [],
+        treatmentSession: session && course
+          ? {
+              id: session.id,
+              treatmentCourseId: session.treatmentCourseId,
+              sessionNumber: session.sessionNumber,
+              totalSessions: course.totalSessions,
+              usedSessions: course.usedSessions,
+              remainingSessions: course.remainingSessions,
+              status: session.status,
+              progressNote: session.progressNote,
+            }
+          : null,
+      });
+    });
   }
 
   private async ensureRoomAvailable(booking: Booking, room: string): Promise<void> {
@@ -1332,7 +1396,7 @@ export class BookingService {
     await this.bookingRepo.update(id, { room });
     booking.room = room;
 
-    const [withServices] = await this.attachServices([booking]);
+    const [withServices] = await this.attachBookingDetails([booking]);
     return withServices;
   }
 }

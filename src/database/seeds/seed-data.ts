@@ -616,11 +616,22 @@ export const SERVICE_INVENTORY_REQUIREMENTS = [
   { serviceCode: 'SVC-BODY-002', itemSku: 'INV-TONER-001', quantityPerService: 0.2 },
   { serviceCode: 'SVC-NAIL-001', itemSku: 'INV-NAIL-001', quantityPerService: 0.1 },
   { serviceCode: 'SVC-MASSAGE-002', itemSku: 'INV-OIL-001', quantityPerService: 0.15 },
+  { serviceCode: 'SVC-MASSAGE-NECK-SHOULDER-001', itemSku: 'INV-OIL-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-MASSAGE-FOOT-HERBAL-001', itemSku: 'INV-OIL-001', quantityPerService: 0.08 },
+  { serviceCode: 'SVC-FACIAL-HYDRATION-BOOST-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.08 },
+  { serviceCode: 'SVC-FACIAL-HYDRATION-BOOST-001', itemSku: 'INV-TONER-001', quantityPerService: 0.08 },
+  { serviceCode: 'SVC-BODY-GLOW-SCRUB-001', itemSku: 'INV-TONER-001', quantityPerService: 0.16 },
   { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-OIL-001', quantityPerService: 0.25 },
   { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.1 },
   { serviceCode: 'SVC-PACKAGE-001', itemSku: 'INV-TONER-001', quantityPerService: 0.1 },
   { serviceCode: 'SVC-PACKAGE-002', itemSku: 'INV-OIL-001', quantityPerService: 0.3 },
   { serviceCode: 'SVC-PACKAGE-002', itemSku: 'INV-NAIL-001', quantityPerService: 0.1 },
+  { serviceCode: 'SVC-TREATMENT-RADIANCE-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.25 },
+  { serviceCode: 'SVC-TREATMENT-RADIANCE-001', itemSku: 'INV-TONER-001', quantityPerService: 0.15 },
+  { serviceCode: 'SVC-TREATMENT-NECK-SHOULDER-001', itemSku: 'INV-OIL-001', quantityPerService: 0.12 },
+  { serviceCode: 'SVC-TREATMENT-SERENITY-001', itemSku: 'INV-OIL-001', quantityPerService: 0.2 },
+  { serviceCode: 'SVC-TREATMENT-COUPLE-RETREAT-001', itemSku: 'INV-OIL-001', quantityPerService: 0.35 },
+  { serviceCode: 'SVC-TREATMENT-COUPLE-RETREAT-001', itemSku: 'INV-SERUM-001', quantityPerService: 0.1 },
 ];
 
 // ── Promotions (UC07) ─────────────────────────────────────────────────────────

@@ -32,6 +32,32 @@ export class BookingServiceItemDto {
   finalAmount!: number;
 }
 
+export class BookingTreatmentSessionDto {
+  @ApiProperty({ example: '12' })
+  id!: string;
+
+  @ApiProperty({ example: '4' })
+  treatmentCourseId!: string;
+
+  @ApiProperty({ example: 2 })
+  sessionNumber!: number;
+
+  @ApiProperty({ example: 5 })
+  totalSessions!: number;
+
+  @ApiProperty({ example: 2 })
+  usedSessions!: number;
+
+  @ApiProperty({ example: 3 })
+  remainingSessions!: number;
+
+  @ApiProperty({ example: 'booked' })
+  status!: string;
+
+  @ApiPropertyOptional({ example: 'Buổi trị liệu đã hoàn thành...' })
+  progressNote!: string | null;
+}
+
 export class BookingResponseDto {
   @ApiProperty({ example: '1' })
   id!: string;
@@ -96,6 +122,9 @@ export class BookingResponseDto {
 
   @ApiProperty({ type: [BookingServiceItemDto] })
   services!: BookingServiceItemDto[];
+
+  @ApiPropertyOptional({ type: BookingTreatmentSessionDto })
+  treatmentSession?: BookingTreatmentSessionDto | null;
 
   @ApiProperty({ example: '2026-06-20T00:00:00.000Z' })
   createdAt!: Date;
