@@ -27,10 +27,8 @@ import { PerformanceDataSeeder } from './performance-data.seeder';
 import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
 /* eslint-disable max-len -- External image URLs are opaque provider-generated values. */
-const MASSAGE_IMAGE =
-  'https://images.unsplash.com/photo-1600334129128-685c5582fd35?auto=format&fit=crop&w=1200&q=85';
-const FACIAL_IMAGE =
-  'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1200&q=85';
+const MASSAGE_IMAGE = 'https://images.unsplash.com/photo-1600334129128-685c5582fd35?auto=format&fit=crop&w=1200&q=85';
+const FACIAL_IMAGE = 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1200&q=85';
 const WELLNESS_IMAGE =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCm_drm21aKgARIN6cbluYOTLae7X7hdcc6zfRCBz4fbAwam5NbcMAGruyiwBUzRptvuHzW1jydIqiyO1ISxqpBUKOlyNYpQRGWXN_Qo-UPflyeE2x253FCaHL-xgHPDgbZmHq7C7G4T4wI2qv4tEilcqDDfvyxmWkXI7qaqUdiJioYHvvNLgRl7XlEyP7bTW7WlAXPfsdOJeFxCX97OCvZfhYGFizo1mEguppmk6ZNaq_HdZ4qWvpoAhYo5rcxhfwfcJwS5e9dpJ8';
 const COUPLE_IMAGE =
@@ -197,6 +195,7 @@ const ADDITIONAL_PRESENTATION_SERVICES: Partial<Service>[] = [
     slug: 'lieu-trinh-giam-cang-co-co-vai-gay',
     category: 'Treatment',
     description:
+      // eslint-disable-next-line max-len
       'Liệu trình 3 buổi cho dân văn phòng hoặc người ngồi máy tính nhiều. Kết hợp massage cổ vai gáy, giãn cơ và thư giãn thần kinh để giảm mỏi, hỗ trợ ngủ tốt hơn.',
     imageUrl: MASSAGE_IMAGE,
     defaultDurationMinutes: 60,
@@ -210,8 +209,7 @@ const ADDITIONAL_PRESENTATION_SERVICES: Partial<Service>[] = [
     name: 'Liệu trình thư giãn toàn thân Serenity',
     slug: 'lieu-trinh-thu-gian-toan-than-serenity',
     category: 'Treatment',
-    description:
-      'Liệu trình 4 buổi sử dụng massage Thụy Điển và hương liệu nhẹ cho khách stress, mất ngủ nhẹ hoặc cần phục hồi năng lượng.',
+    description: 'Liệu trình 4 buổi sử dụng massage Thụy Điển và hương liệu nhẹ cho khách stress, mất ngủ nhẹ hoặc cần phục hồi năng lượng.',
     imageUrl: MASSAGE_IMAGE,
     defaultDurationMinutes: 90,
     defaultPrice: 1350000,
@@ -224,8 +222,7 @@ const ADDITIONAL_PRESENTATION_SERVICES: Partial<Service>[] = [
     name: 'Liệu trình Couple Retreat',
     slug: 'lieu-trinh-couple-retreat',
     category: 'Treatment',
-    description:
-      'Liệu trình 2 buổi dành cho cặp đôi hoặc khách muốn trải nghiệm thư giãn cùng người thân trong không gian riêng tư, cao cấp.',
+    description: 'Liệu trình 2 buổi dành cho cặp đôi hoặc khách muốn trải nghiệm thư giãn cùng người thân trong không gian riêng tư, cao cấp.',
     imageUrl: COUPLE_IMAGE,
     defaultDurationMinutes: 120,
     defaultPrice: 2600000,
