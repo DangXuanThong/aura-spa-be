@@ -56,6 +56,21 @@ export class BookingTreatmentSessionDto {
 
   @ApiPropertyOptional({ example: 'Buổi trị liệu đã hoàn thành...' })
   progressNote!: string | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  beforeImages!: string[] | null;
+
+  @ApiPropertyOptional({ type: [String] })
+  afterImages!: string[] | null;
+
+  @ApiPropertyOptional({ example: 'Drink water and rest after the treatment session.' })
+  careRecommendation!: string | null;
+
+  @ApiPropertyOptional({ example: '2026-07-20T03:00:00.000Z' })
+  nextRecommendedAt!: Date | null;
+
+  @ApiPropertyOptional({ example: '2026-07-19T03:00:00.000Z' })
+  reminderSentAt!: Date | null;
 }
 
 export class BookingResponseDto {

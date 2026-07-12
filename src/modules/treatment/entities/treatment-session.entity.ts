@@ -57,6 +57,15 @@ export class TreatmentSession {
   @Column({ name: 'progress_note', type: 'text', nullable: true })
   progressNote!: string | null;
 
+  @Column({ name: 'care_recommendation', type: 'text', nullable: true })
+  careRecommendation!: string | null;
+
+  @Column({ name: 'next_recommended_at', type: 'timestamptz', nullable: true })
+  nextRecommendedAt!: Date | null;
+
+  @Column({ name: 'reminder_sent_at', type: 'timestamptz', nullable: true })
+  reminderSentAt!: Date | null;
+
   @Column({ name: 'before_images', type: 'jsonb', nullable: true })
   beforeImages!: string[] | null;
 

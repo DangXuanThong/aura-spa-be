@@ -26,6 +26,15 @@ export class TreatmentSessionResponseDto {
   @ApiPropertyOptional({ type: [String] })
   afterImages!: string[] | null;
 
+  @ApiPropertyOptional({ example: 'Uong du nuoc, tranh xong hoi va duong am nhe sau tri lieu.' })
+  careRecommendation!: string | null;
+
+  @ApiPropertyOptional({ example: '2026-07-20T03:00:00.000Z' })
+  nextRecommendedAt!: Date | null;
+
+  @ApiPropertyOptional({ example: '2026-07-19T03:00:00.000Z' })
+  reminderSentAt!: Date | null;
+
   @ApiPropertyOptional({ example: '2026-06-10T10:00:00.000Z' })
   completedAt!: Date | null;
 }
