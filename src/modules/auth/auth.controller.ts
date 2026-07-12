@@ -1,5 +1,13 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Request, Res, UseGuards } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBearerAuth, ApiConflictResponse, ApiOkResponse, ApiTags, ApiTooManyRequestsResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiOkResponse,
+  ApiTags,
+  ApiTooManyRequestsResponse,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
@@ -43,6 +51,22 @@ const DATE_OF_BIRTH_BAD_REQUEST_RESPONSE = {
   },
 };
 
+/**
+ * Frontend (Vercel) and backend (Render) live on different registrable domains in production,
+ * making this a cross-site context. Cross-site fetch()/XHR calls only carry cookies when
+ * SameSite=None (which itself requires Secure=true) — SameSite=Lax would only survive the
+ * top-level OAuth redirect, not the subsequent /auth/me fetch. In dev, both run on localhost
+ * (same-site, different ports), where Lax is fine and avoids Secure-cookie requirements over http.
+ */
+function getAuthCookieOptions(isProduction: boolean) {
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+  };
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -73,11 +97,8 @@ export class AuthController {
     const result = await this.authService.login(dto);
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     res.cookie('access_token', result.accessToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
+      ...getAuthCookieOptions(isProduction),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/',
     });
     return buildSuccessResponse(result);
   }
@@ -91,8 +112,9 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   logout(@Request() req: any, @Res({ passthrough: true }) res: Response): ApiResponse<{ message: string }> {
     const cookie = req.cookies?.['access_token'] as string | undefined;
-    const token = cookie ?? (req.headers?.authorization?.split(' ')[1] ?? '');
-    res.clearCookie('access_token', { path: '/' });
+    const token = cookie ?? req.headers?.authorization?.split(' ')[1] ?? '';
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    res.clearCookie('access_token', getAuthCookieOptions(isProduction));
     const result = this.authService.logout(token);
     return buildSuccessResponse(result);
   }
@@ -178,11 +200,8 @@ export class AuthController {
     const result = await this.authService.googleLogin(req.user as any);
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     res.cookie('access_token', result.accessToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
+      ...getAuthCookieOptions(isProduction),
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
     });
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
     res.redirect(`${frontendUrl}/auth/callback`);
