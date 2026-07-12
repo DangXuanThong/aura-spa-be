@@ -30,4 +30,12 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   discountCode?: string;
+
+  @ApiPropertyOptional({
+    example: '12',
+    description: 'Treatment course to continue. When provided, the booking is linked to the next planned session of this course.',
+  })
+  @IsOptional()
+  @IsString()
+  treatmentCourseId?: string;
 }

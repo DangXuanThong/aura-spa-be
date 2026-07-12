@@ -3,7 +3,7 @@ import { vietnamDate } from 'src/common/utils/vietnam-date';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Booking } from './entities/booking.entity';
 import { BookingService as BookingServiceEntity } from './entities/booking-service.entity';
 import { BookingSlotConfig } from './entities/booking-slot-config.entity';
@@ -48,6 +48,7 @@ import { TreatmentSession } from 'src/modules/treatment/entities/treatment-sessi
 import { TreatmentCourseStatus } from 'src/modules/treatment/enums/treatment-course-status.enum';
 import { TreatmentSessionStatus } from 'src/modules/treatment/enums/treatment-session-status.enum';
 import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
+import { Notification, NotificationChannel, NotificationStatus } from 'src/modules/notification/entities/notification.entity';
 
 const ACTIVE_BOOKING_STATUSES = [BookingStatus.PendingPayment, BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
 const ROOM_OCCUPYING_STATUSES = [BookingStatus.Confirmed, BookingStatus.CheckedIn, BookingStatus.InService];
@@ -91,7 +92,125 @@ export class BookingService {
     private readonly configService: ConfigService,
   ) {}
 
+  private async linkTreatmentSessionForBooking(
+    manager: EntityManager,
+    params: {
+      customerId: string;
+      serviceId: string;
+      branchId: string;
+      bookingId: string;
+      technicianId: string | null;
+      treatmentCourseId?: string;
+    },
+  ): Promise<void> {
+    const { customerId, serviceId, branchId, bookingId, technicianId, treatmentCourseId } = params;
+    const now = new Date();
+    const isExplicitCourse = Boolean(treatmentCourseId);
+
+    const course = treatmentCourseId
+      ? await manager.findOne(TreatmentCourse, { where: { id: treatmentCourseId } })
+      : await manager.findOne(TreatmentCourse, {
+          where: { customerId, serviceId, status: TreatmentCourseStatus.Active },
+          order: { createdAt: 'ASC' },
+        });
+
+    if (!course) {
+      if (treatmentCourseId) throw new NotFoundException('Treatment course not found');
+      return;
+    }
+
+    if (course.customerId !== customerId) {
+      throw new ForbiddenException('You do not have access to this treatment course');
+    }
+    if (course.serviceId !== serviceId) {
+      throw new BadRequestException('Selected service does not match this treatment course');
+    }
+    if (course.status !== TreatmentCourseStatus.Active) {
+      if (isExplicitCourse) throw new BadRequestException('Only active treatment courses can be booked');
+      return;
+    }
+    if (course.branchId && course.branchId !== branchId) {
+      if (isExplicitCourse) throw new BadRequestException('Treatment course must continue at its assigned branch');
+      return;
+    }
+    if (course.expiresAt && course.expiresAt.getTime() < now.getTime()) {
+      course.status = TreatmentCourseStatus.Expired;
+      await manager.save(TreatmentCourse, course);
+      if (isExplicitCourse) throw new BadRequestException('Treatment course has expired');
+      return;
+    }
+    if (course.remainingSessions <= 0) {
+      course.status = TreatmentCourseStatus.Completed;
+      await manager.save(TreatmentCourse, course);
+      if (isExplicitCourse) throw new BadRequestException('Treatment course has no remaining sessions');
+      return;
+    }
+
+    const nextSession = await manager.findOne(TreatmentSession, {
+      where: { treatmentCourseId: course.id, status: TreatmentSessionStatus.Planned },
+      order: { sessionNumber: 'ASC' },
+    });
+    if (!nextSession) {
+      if (isExplicitCourse) throw new BadRequestException('No planned treatment session is available for this course');
+      return;
+    }
+
+    nextSession.bookingId = bookingId;
+    nextSession.status = TreatmentSessionStatus.Booked;
+    nextSession.staffId = technicianId;
+    await manager.save(TreatmentSession, nextSession);
+
+    if (!course.branchId) {
+      course.branchId = branchId;
+      await manager.save(TreatmentCourse, course);
+    }
+  }
+
+  private async notifyTreatmentProgress(
+    manager: EntityManager,
+    course: TreatmentCourse,
+    completedSessions: number,
+    remainingSessions: number,
+    nextRecommendedAt?: Date | null,
+  ): Promise<void> {
+    const completed = remainingSessions === 0;
+    const nextDateText = this.formatTreatmentFollowUpDate(nextRecommendedAt);
+    void nextDateText;
+    /* eslint-disable max-len */
+    const message = completed
+      ? `Bạn đã hoàn thành toàn bộ liệu trình ${completedSessions}/${course.totalSessions} buổi. Cảm ơn bạn đã đồng hành cùng AuraSpa.`
+      : `Bạn đã hoàn thành buổi ${completedSessions}/${course.totalSessions} của liệu trình. Còn ${remainingSessions} buổi, hãy đặt buổi tiếp theo để duy trì hiệu quả.`;
+    /* eslint-enable max-len */
+
+    await manager.save(
+      manager.create(Notification, {
+        recipientUserId: course.customerId,
+        recipientRole: UserRole.Customer,
+        notificationType: completed ? 'treatment_course_completed' : 'treatment_session_completed',
+        message,
+        status: NotificationStatus.Sent,
+        channel: NotificationChannel.InApp,
+        relatedEntityType: 'treatment_course',
+        relatedEntityId: course.id,
+        sentAt: new Date(),
+      }),
+    );
+  }
+
   // UC10 — Book Appointment
+  private formatTreatmentFollowUpDate(value?: Date | null): string {
+    if (!value) return '';
+
+    return new Intl.DateTimeFormat('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Asia/Ho_Chi_Minh',
+    }).format(value);
+  }
+
   async create(dto: CreateBookingDto, customerId: string): Promise<Booking> {
     // 1. Validate branch is active
     const branch = await this.branchRepo.findOne({ where: { id: dto.branchId } });
@@ -243,30 +362,14 @@ export class BookingService {
         }),
       );
 
-      // Link next planned treatment session if active course exists
-      const activeCourse = await manager.findOne(TreatmentCourse, {
-        where: {
-          customerId,
-          serviceId: dto.serviceId,
-          status: TreatmentCourseStatus.Active,
-        },
-        order: { createdAt: 'ASC' },
+      await this.linkTreatmentSessionForBooking(manager, {
+        customerId,
+        serviceId: dto.serviceId,
+        branchId: dto.branchId,
+        bookingId: created.id,
+        technicianId,
+        treatmentCourseId: dto.treatmentCourseId,
       });
-      if (activeCourse) {
-        const nextSession = await manager.findOne(TreatmentSession, {
-          where: {
-            treatmentCourseId: activeCourse.id,
-            status: TreatmentSessionStatus.Planned,
-          },
-          order: { sessionNumber: 'ASC' },
-        });
-        if (nextSession) {
-          nextSession.bookingId = created.id;
-          nextSession.status = TreatmentSessionStatus.Booked;
-          nextSession.staffId = technicianId;
-          await manager.save(TreatmentSession, nextSession);
-        }
-      }
 
       return created;
     });
@@ -654,13 +757,17 @@ export class BookingService {
 
       session.status = TreatmentSessionStatus.Completed;
       session.staffId = staffId;
-      session.completedAt = new Date();
+      const completedAt = new Date();
+      session.completedAt = completedAt;
       if (!session.progressNote) {
         session.progressNote = 'Buổi trị liệu đã hoàn thành. Hệ thống đã cập nhật tiến độ liệu trình và chuyển lịch sang chờ thanh toán.';
       }
+      if (!session.careRecommendation) {
+        session.careRecommendation = 'Uong du nuoc, nghi ngoi va theo doi phan ung cua co the trong 24 gio sau tri lieu.';
+      }
       await manager.save(TreatmentSession, session);
 
-      const course = session.treatmentCourse ?? await manager.findOne(TreatmentCourse, { where: { id: session.treatmentCourseId } });
+      const course = session.treatmentCourse ?? (await manager.findOne(TreatmentCourse, { where: { id: session.treatmentCourseId } }));
       if (!course) return;
 
       const completedSessions = await manager.count(TreatmentSession, {
@@ -670,6 +777,21 @@ export class BookingService {
         },
       });
       const remainingSessions = Math.max(course.totalSessions - completedSessions, 0);
+      let nextRecommendedAt: Date | null = null;
+
+      if (remainingSessions > 0) {
+        const nextSession = await manager.findOne(TreatmentSession, {
+          where: { treatmentCourseId: course.id, status: TreatmentSessionStatus.Planned },
+          order: { sessionNumber: 'ASC' },
+        });
+        if (nextSession) {
+          const suggestedDate = new Date(completedAt);
+          suggestedDate.setDate(suggestedDate.getDate() + 7);
+          nextSession.nextRecommendedAt = nextSession.nextRecommendedAt ?? suggestedDate;
+          nextRecommendedAt = nextSession.nextRecommendedAt;
+          await manager.save(TreatmentSession, nextSession);
+        }
+      }
 
       course.usedSessions = completedSessions;
       course.remainingSessions = remainingSessions;
@@ -677,6 +799,7 @@ export class BookingService {
         course.status = TreatmentCourseStatus.Completed;
       }
       await manager.save(TreatmentCourse, course);
+      await this.notifyTreatmentProgress(manager, course, completedSessions, remainingSessions, nextRecommendedAt);
     });
 
     return this.bookingRepo.findOne({ where: { id } }) as Promise<Booking>;
@@ -881,30 +1004,13 @@ export class BookingService {
         }),
       );
 
-      // Link next planned treatment session if active course exists
-      const activeCourse = await manager.findOne(TreatmentCourse, {
-        where: {
-          customerId: customerId!,
-          serviceId: dto.serviceId,
-          status: TreatmentCourseStatus.Active,
-        },
-        order: { createdAt: 'ASC' },
+      await this.linkTreatmentSessionForBooking(manager, {
+        customerId: customerId!,
+        serviceId: dto.serviceId,
+        branchId: dto.branchId,
+        bookingId: booking.id,
+        technicianId: dto.technicianId ?? null,
       });
-      if (activeCourse) {
-        const nextSession = await manager.findOne(TreatmentSession, {
-          where: {
-            treatmentCourseId: activeCourse.id,
-            status: TreatmentSessionStatus.Planned,
-          },
-          order: { sessionNumber: 'ASC' },
-        });
-        if (nextSession) {
-          nextSession.bookingId = booking.id;
-          nextSession.status = TreatmentSessionStatus.Booked;
-          nextSession.staffId = dto.technicianId ?? null;
-          await manager.save(TreatmentSession, nextSession);
-        }
-      }
 
       return booking;
     });
@@ -1308,7 +1414,9 @@ export class BookingService {
       .getCount();
   }
 
-  private async attachBookingDetails(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[]; treatmentSession?: any | null })[]> {
+  private async attachBookingDetails(
+    bookings: Booking[],
+  ): Promise<(Booking & { services: BookingServiceEntity[]; treatmentSession?: any | null })[]> {
     if (bookings.length === 0) return [];
     const ids = bookings.map((b) => b.id);
     const [allServices, treatmentSessions] = await Promise.all([
@@ -1337,18 +1445,24 @@ export class BookingService {
       const course = session?.treatmentCourse;
       return Object.assign(b, {
         services: servicesByBooking.get(b.id) ?? [],
-        treatmentSession: session && course
-          ? {
-              id: session.id,
-              treatmentCourseId: session.treatmentCourseId,
-              sessionNumber: session.sessionNumber,
-              totalSessions: course.totalSessions,
-              usedSessions: course.usedSessions,
-              remainingSessions: course.remainingSessions,
-              status: session.status,
-              progressNote: session.progressNote,
-            }
-          : null,
+        treatmentSession:
+          session && course
+            ? {
+                id: session.id,
+                treatmentCourseId: session.treatmentCourseId,
+                sessionNumber: session.sessionNumber,
+                totalSessions: course.totalSessions,
+                usedSessions: course.usedSessions,
+                remainingSessions: course.remainingSessions,
+                status: session.status,
+                progressNote: session.progressNote,
+                beforeImages: session.beforeImages,
+                afterImages: session.afterImages,
+                careRecommendation: session.careRecommendation,
+                nextRecommendedAt: session.nextRecommendedAt,
+                reminderSentAt: session.reminderSentAt,
+              }
+            : null,
       });
     });
   }

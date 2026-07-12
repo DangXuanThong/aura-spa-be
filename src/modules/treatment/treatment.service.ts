@@ -67,7 +67,9 @@ export class TreatmentService {
     if (
       dto.progressNote === undefined &&
       dto.beforeImages === undefined &&
-      dto.afterImages === undefined
+      dto.afterImages === undefined &&
+      dto.careRecommendation === undefined &&
+      dto.nextRecommendedAt === undefined
     ) {
       throw new BadRequestException('At least one progress field is required');
     }
@@ -104,6 +106,13 @@ export class TreatmentService {
     if (dto.afterImages !== undefined) {
       session.afterImages = this.normalizeImageUrls(dto.afterImages);
     }
+    if (dto.careRecommendation !== undefined) {
+      const recommendation = dto.careRecommendation.trim();
+      session.careRecommendation = recommendation.length > 0 ? recommendation : null;
+    }
+    if (dto.nextRecommendedAt !== undefined) {
+      session.nextRecommendedAt = this.parseOptionalDate(dto.nextRecommendedAt, 'nextRecommendedAt');
+    }
 
     return this.sessionRepo.save(session);
   }
@@ -130,5 +139,14 @@ export class TreatmentService {
   private normalizeImageUrls(urls: string[]): string[] | null {
     const normalized = urls.map((url) => url.trim()).filter(Boolean);
     return normalized.length > 0 ? normalized : null;
+  }
+
+  private parseOptionalDate(value: string | undefined, fieldName: string): Date | null {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`${fieldName} must be a valid ISO date`);
+    }
+    return date;
   }
 }
