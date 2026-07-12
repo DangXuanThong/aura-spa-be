@@ -176,9 +176,11 @@ export class BookingService {
     const completed = remainingSessions === 0;
     const nextDateText = this.formatTreatmentFollowUpDate(nextRecommendedAt);
     void nextDateText;
+    /* eslint-disable max-len */
     const message = completed
       ? `Bạn đã hoàn thành toàn bộ liệu trình ${completedSessions}/${course.totalSessions} buổi. Cảm ơn bạn đã đồng hành cùng AuraSpa.`
       : `Bạn đã hoàn thành buổi ${completedSessions}/${course.totalSessions} của liệu trình. Còn ${remainingSessions} buổi, hãy đặt buổi tiếp theo để duy trì hiệu quả.`;
+    /* eslint-enable max-len */
 
     await manager.save(
       manager.create(Notification, {
@@ -765,7 +767,7 @@ export class BookingService {
       }
       await manager.save(TreatmentSession, session);
 
-      const course = session.treatmentCourse ?? await manager.findOne(TreatmentCourse, { where: { id: session.treatmentCourseId } });
+      const course = session.treatmentCourse ?? (await manager.findOne(TreatmentCourse, { where: { id: session.treatmentCourseId } }));
       if (!course) return;
 
       const completedSessions = await manager.count(TreatmentSession, {
@@ -1412,7 +1414,9 @@ export class BookingService {
       .getCount();
   }
 
-  private async attachBookingDetails(bookings: Booking[]): Promise<(Booking & { services: BookingServiceEntity[]; treatmentSession?: any | null })[]> {
+  private async attachBookingDetails(
+    bookings: Booking[],
+  ): Promise<(Booking & { services: BookingServiceEntity[]; treatmentSession?: any | null })[]> {
     if (bookings.length === 0) return [];
     const ids = bookings.map((b) => b.id);
     const [allServices, treatmentSessions] = await Promise.all([
@@ -1441,23 +1445,24 @@ export class BookingService {
       const course = session?.treatmentCourse;
       return Object.assign(b, {
         services: servicesByBooking.get(b.id) ?? [],
-        treatmentSession: session && course
-          ? {
-              id: session.id,
-              treatmentCourseId: session.treatmentCourseId,
-              sessionNumber: session.sessionNumber,
-              totalSessions: course.totalSessions,
-              usedSessions: course.usedSessions,
-              remainingSessions: course.remainingSessions,
-              status: session.status,
-              progressNote: session.progressNote,
-              beforeImages: session.beforeImages,
-              afterImages: session.afterImages,
-              careRecommendation: session.careRecommendation,
-              nextRecommendedAt: session.nextRecommendedAt,
-              reminderSentAt: session.reminderSentAt,
-            }
-          : null,
+        treatmentSession:
+          session && course
+            ? {
+                id: session.id,
+                treatmentCourseId: session.treatmentCourseId,
+                sessionNumber: session.sessionNumber,
+                totalSessions: course.totalSessions,
+                usedSessions: course.usedSessions,
+                remainingSessions: course.remainingSessions,
+                status: session.status,
+                progressNote: session.progressNote,
+                beforeImages: session.beforeImages,
+                afterImages: session.afterImages,
+                careRecommendation: session.careRecommendation,
+                nextRecommendedAt: session.nextRecommendedAt,
+                reminderSentAt: session.reminderSentAt,
+              }
+            : null,
       });
     });
   }
