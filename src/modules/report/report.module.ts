@@ -14,5 +14,6 @@ import { AuthModule } from 'src/modules/auth/auth.module';
   imports: [TypeOrmModule.forFeature([Booking, Review, Branch, BranchStaff, Payment]), AuthModule],
   controllers: [ReportController],
   providers: [ReportService, RolesGuard],
+  exports: [ReportService],
 })
 export class ReportModule {}

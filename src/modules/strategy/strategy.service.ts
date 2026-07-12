@@ -37,6 +37,29 @@ export class StrategyService {
     );
   }
 
+  createAi(
+    dto: CreateStrategyDto & {
+      aiConfidence: number;
+      supportingData: Record<string, unknown>;
+    },
+    userId: string,
+  ): Promise<Strategy> {
+    return this.repo.save(
+      this.repo.create({
+        title: dto.title,
+        description: dto.description,
+        badge: dto.badge,
+        priority: dto.priority,
+        status: dto.status,
+        source: StrategySource.AiGenerated,
+        aiConfidence: dto.aiConfidence,
+        supportingData: dto.supportingData,
+        createdBy: userId,
+        updatedBy: userId,
+      }),
+    );
+  }
+
   async update(id: string, dto: UpdateStrategyDto, userId: string): Promise<Strategy> {
     await this.findOne(id);
     await this.repo.update(id, { ...dto, updatedBy: userId });
