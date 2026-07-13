@@ -26,6 +26,8 @@
     "typeorm": "typeorm-ts-node-commonjs -d src/config/database.config.ts",
     "schema:sync": "npm run typeorm schema:sync",
     "seed:clean-accounts": "node scripts/seed-clean-accounts.js",
+    "seed:verify-ai-matrix": "node scripts/verify-ai-matrix.js",
+    "seed:ai-availability": "node scripts/seed-ai-availability.js",
     "migration:generate": "npm run typeorm migration:generate",
     "migration:run": "npm run typeorm migration:run",
     "migration:run:prod": "node node_modules/typeorm/cli.js migration:run -d dist/config/database.config.js",
