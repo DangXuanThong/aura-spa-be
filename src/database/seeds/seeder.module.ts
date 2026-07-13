@@ -40,6 +40,8 @@ import { DiscountCodeSeeder } from './discount-code.seeder';
 import { ConversationSeeder } from './conversation.seeder';
 import { ComplaintSeeder } from './complaint.seeder';
 import { PerformanceDataSeeder } from './performance-data.seeder';
+import { DemoAiPersonasSeeder } from './demo-ai-personas.seeder';
+import { Strategy } from 'src/modules/strategy/entities/strategy.entity';
 
 @Module({
   imports: [
@@ -47,6 +49,7 @@ import { PerformanceDataSeeder } from './performance-data.seeder';
       User,
       Branch,
       Service,
+      Strategy,
       BranchOpeningHours,
       BranchStaff,
       BranchServiceEntity,
@@ -87,6 +90,8 @@ import { PerformanceDataSeeder } from './performance-data.seeder';
     ComplaintSeeder,
     ScheduleSeeder,
     PerformanceDataSeeder,
+    DemoAiPersonasSeeder,
   ],
+  exports: [DemoAiPersonasSeeder],
 })
 export class SeederModule {}

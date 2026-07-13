@@ -24,6 +24,7 @@ import { ConversationSeeder } from './conversation.seeder';
 import { ComplaintSeeder } from './complaint.seeder';
 import { ScheduleSeeder } from './schedule.seeder';
 import { PerformanceDataSeeder } from './performance-data.seeder';
+import { DemoAiPersonasSeeder } from './demo-ai-personas.seeder';
 import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
 /* eslint-disable max-len -- External image URLs are opaque provider-generated values. */
@@ -257,10 +258,16 @@ export class SeederService implements OnApplicationBootstrap {
     private readonly complaintSeeder: ComplaintSeeder,
     private readonly scheduleSeeder: ScheduleSeeder,
     private readonly performanceDataSeeder: PerformanceDataSeeder,
+    private readonly demoAiPersonasSeeder: DemoAiPersonasSeeder,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     if (this.configService.get('NODE_ENV') === 'production') return;
+    // Set SKIP_SEED=true to boot API quickly (e.g. QA) when data already exists.
+    if (this.configService.get<string>('SKIP_SEED') === 'true') {
+      this.logger.log('SKIP_SEED=true — skipping all seeders');
+      return;
+    }
     await this.seedOwnerAccount();
     await this.seedCustomers();
     await this.seedStaff();
@@ -282,6 +289,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.scheduleSeeder.seed();
     await this.performanceDataSeeder.seed();
     await this.seedDynamicRostersAndReviews();
+    await this.demoAiPersonasSeeder.seed();
   }
 
   // ── Owner ────────────────────────────────────────────────────────────────
