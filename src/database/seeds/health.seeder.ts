@@ -17,12 +17,6 @@ export class HealthSeeder {
   ) {}
 
   async seed(): Promise<void> {
-    const count = await this.healthRepo.count();
-    if (count > 0) {
-      this.logger.log('Health records already exist — skipping');
-      return;
-    }
-
     const owner = await this.userRepo.findOne({ where: { email: 'owner@gmail.com' } });
     if (!owner) return;
 
@@ -38,6 +32,11 @@ export class HealthSeeder {
       const customer = customerMap.get(def.customerEmail);
       const branch = branchMap.get(def.branchCode);
       if (!customer) continue;
+
+      const existing = await this.healthRepo.findOne({
+        where: { customerId: customer.id, branchId: branch?.id ?? undefined },
+      });
+      if (existing) continue;
 
       await this.healthRepo.save(
         this.healthRepo.create({

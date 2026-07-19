@@ -42,6 +42,14 @@ import { ComplaintSeeder } from './complaint.seeder';
 import { PerformanceDataSeeder } from './performance-data.seeder';
 import { DemoAiPersonasSeeder } from './demo-ai-personas.seeder';
 import { Strategy } from 'src/modules/strategy/entities/strategy.entity';
+import { ActivityLog } from 'src/modules/activity-log/entities/activity-log.entity';
+import { InventoryTransaction } from 'src/modules/inventory/entities/inventory-transaction.entity';
+import { LoyaltyAccount } from 'src/modules/loyalty/entities/loyalty-account.entity';
+import { LoyaltyTransaction } from 'src/modules/loyalty/entities/loyalty-transaction.entity';
+import { Notification } from 'src/modules/notification/entities/notification.entity';
+import { PaymentTransaction } from 'src/modules/payment/domain/entities/payment-transaction.entity';
+import { BranchDailyAggregate } from 'src/modules/report/entities/branch-daily-aggregate.entity';
+import { OperationalDemoSeeder } from './operational-demo.seeder';
 
 @Module({
   imports: [
@@ -73,6 +81,13 @@ import { Strategy } from 'src/modules/strategy/entities/strategy.entity';
       Complaint,
       ScheduleRequest,
       StaffSchedule,
+      ActivityLog,
+      InventoryTransaction,
+      LoyaltyAccount,
+      LoyaltyTransaction,
+      Notification,
+      PaymentTransaction,
+      BranchDailyAggregate,
     ]),
   ],
   providers: [
@@ -91,6 +106,7 @@ import { Strategy } from 'src/modules/strategy/entities/strategy.entity';
     ScheduleSeeder,
     PerformanceDataSeeder,
     DemoAiPersonasSeeder,
+    OperationalDemoSeeder,
   ],
   exports: [DemoAiPersonasSeeder],
 })
