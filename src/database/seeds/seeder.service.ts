@@ -25,6 +25,7 @@ import { ComplaintSeeder } from './complaint.seeder';
 import { ScheduleSeeder } from './schedule.seeder';
 import { PerformanceDataSeeder } from './performance-data.seeder';
 import { DemoAiPersonasSeeder } from './demo-ai-personas.seeder';
+import { OperationalDemoSeeder } from './operational-demo.seeder';
 import { OWNER, CUSTOMERS, STAFF, MANAGERS, BRANCHES, SERVICES } from './seed-data';
 
 /* eslint-disable max-len -- External image URLs are opaque provider-generated values. */
@@ -259,6 +260,7 @@ export class SeederService implements OnApplicationBootstrap {
     private readonly scheduleSeeder: ScheduleSeeder,
     private readonly performanceDataSeeder: PerformanceDataSeeder,
     private readonly demoAiPersonasSeeder: DemoAiPersonasSeeder,
+    private readonly operationalDemoSeeder: OperationalDemoSeeder,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -290,6 +292,7 @@ export class SeederService implements OnApplicationBootstrap {
     await this.performanceDataSeeder.seed();
     await this.seedDynamicRostersAndReviews();
     await this.demoAiPersonasSeeder.seed();
+    await this.operationalDemoSeeder.seed();
   }
 
   // ── Owner ────────────────────────────────────────────────────────────────
